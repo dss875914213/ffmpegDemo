@@ -198,11 +198,29 @@ int main(int argc, char* argv[])
 				pFrmYUV->data[0], pFrmYUV->linesize[0],
 				pFrmYUV->data[1], pFrmYUV->linesize[1],
 				pFrmYUV->data[2], pFrmYUV->linesize[2]);
+
+			// B6.使用特定颜色清空当前渲染目标
+			SDL_RenderClear(sdlRenderer);
+			// B7.使用部分图像数据(texture)更新当前渲染目标
+			SDL_RenderCopy(sdlRenderer, sdlTexture, NULL, &sdlRect);
+
+			// B8.执行渲染，更新屏幕显示
+			SDL_RenderPresent(sdlRenderer);
+
+			// B9.控制帧率为25FPS，此处不够准确，未考虑解码消耗时间
+			SDL_Delay(40);
 		}
+		av_packet_unref(pPacket);
 	}
 
-
-
+	SDL_Quit();
+	sws_freeContext(swsCtx);
+	av_free(buffer);
+	av_frame_free(&pFrmYUV);
+	av_frame_free(&pFrmRaw);
+	avcodec_close(pCodecCtx);
+	avformat_close_input(&pFmtCtx);
+	return 0;
 }
 
 
