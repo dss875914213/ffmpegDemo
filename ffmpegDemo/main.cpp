@@ -30,7 +30,7 @@ extern "C"
 #include <libswresample/swresample.h>
 }
 
-#include <SDL.h>
+#include <SDL/SDL.h>
 
 #define SDL_AUDIO_BUFFER_SIZE 1024
 #define MAX_AUDIO_FRAME_SIZE 192000
@@ -502,10 +502,10 @@ int main(int argc, char* argv[])
     p_codec_par = p_fmt_ctx->streams[a_idx]->codecpar;
 
     // A3.2 »ñÈ¡½âÂëÆ÷
-    p_codec = avcodec_find_decoder(p_codec_par->codec_id);
+    p_codec = (AVCodec* )avcodec_find_decoder(p_codec_par->codec_id);
     if (p_codec == NULL)
     {
-        printf("Cann't find codec!\n");
+        printf("Can't find codec!\n");
         res = -1;
         goto exit1;
     }
