@@ -381,7 +381,16 @@ int main(int argc, char* argv[])
 		goto EXIT1;
 	}
 
-	// A3.3.2 pCodecCtx 初始化：使用 pCodec 初始化 pCodecContext，初始化完成
+	// A3.3.2 pCodecCtx 初始化：pCodecParameteres ==> pCodecContext
+	ret = avcodec_parameters_to_context(pCodecContext, pCodecParameters);
+	if (ret < 0)
+	{
+		cout << "avcodec_parameters_to_context() failed " << ret << endl;
+		result = -1;
+		goto EXIT2;
+	}
+
+	// A3.3.3 pCodecCtx 初始化：使用 pCodec 初始化 pCodecContext，初始化完成
 	ret = avcodec_open2(pCodecContext, pCodec, NULL);
 	if (ret < 0)
 	{
