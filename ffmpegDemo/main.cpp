@@ -494,3 +494,131 @@ EXIT1:
 EXIT0:
 	return result;
 }
+
+int OpenAudioStream(AVFormatContext* pFormatContext, AVCodecContext* pCodecContext, int streamIndex)
+{
+	AVCodecParameters* pCodecPar = NULL;
+	AVCodec* pCodec = NULL;
+	SDL_AudioSpec wantedSpec;
+	SDL_AudioSpec actualSpec;
+	int ret = 0;
+	PacketQueueInit(&sAudioPacketQueue);
+	// 1. 为音频构建解码器 AVCodecContext
+	// 1.1 获取解码器参数 AVCodecParameters
+	pCodecPar = pFormatContext->streams[streamIndex]->codecpar;
+	// 1.2 获取解码器
+	pCodec = (AVCodec*)avcodec_find_decoder(pCodecPar->codec_id);
+	if (pCodecPar == NULL)
+	{
+		cout << "Can't find codec" << endl;
+		return -1;
+	}
+
+	// 1.3 构建解码器 AVCodecContext
+	// 1.3.1 pCodecContext 初始化：分配结构体
+	pCodecContext = avcodec_alloc_context3(pCodec);
+	if (pCodecContext == NULL)
+	{
+		cout << "avcodec_alloc_context3() failed " << endl;
+		return -1;
+	}
+	// 1.3.2 pCodecContext 初始化：pCodecPar==>pCodecContext
+	ret = avcodec_parameters_to_context(pCodecContext, pCodecPar);
+	if (ret < 0)
+	{
+		cout << "avcodec_parameters_to_context() failed " << ret << endl;
+		return -1;
+	}
+	// 1.3.3 pCodecContext 初始化：pCodec 初始化 pCodecContext
+	ret = avcodec_open2(pCodecContext, pCodec, NULL);
+	if (ret < 0)
+	{
+		cout << "avcodec_open2() failed " << ret << endl;
+		return -1;
+	}
+
+	// 2 打开音频设备并创建音频处理线程
+	wantedSpec.freq = pCodecContext->sample_rate;
+	wantedSpec.format = AUDIO_S16SYS;
+	wantedSpec.channels = pCodecContext->channels;
+	wantedSpec.silence = 0;
+	wantedSpec.samples = SDL_AUDIO_BUFFER_SIZE;
+	wantedSpec.callback = SDLAudioCallback;
+	wantedSpec.userdata = pCodecContext;
+	if (!(audioDevice = SDL_OpenAudioDevice(NULL, 0, &wantedSpec, &actualSpec, SDL_AUDIO_ALLOW_FREQUENCY_CHANGE | SDL_AUDIO_ALLOW_CHANNELS_CHANGE)))
+	{
+		cout << "SDL_OpenAudioDevice() faile " << SDL_GetError() << endl;
+		return -1;
+	}
+
+	if (actualSpec.format != AUDIO_S16SYS)
+	{
+		cout << "actualSpec format != AUDIO_S16SYS " << endl;
+		return -1;
+	}
+	sAudioParamTarget.format = AV_SAMPLE_FMT_S16;
+	sAudioParamTarget.freq = actualSpec.freq;
+	sAudioParamTarget.channelLayout = av_get_default_channel_layout(actualSpec.channels);
+	sAudioParamTarget.channels = actualSpec.channels;
+	sAudioParamTarget.frameSize = av_samples_get_buffer_size(NULL, actualSpec.channels, 1, sAudioParamTarget.format, 1);
+	sAudioParamTarget.bytesPerSecond = av_samples_get_buffer_size(NULL, actualSpec.channels, actualSpec.freq, sAudioParamTarget.format, 1);
+	if (sAudioParamTarget.bytesPerSecond <= 0 || sAudioParamTarget.frameSize <= 0)
+	{
+		cout << "av_samples_get_buffer_size() failed" << endl;
+		return -1;
+	}
+	sAudioParamSource = sAudioParamTarget;
+
+	// 开始回调处理
+	SDL_PauseAudioDevice(audioDevice, 0);
+	return 0;
+}
+
+int OpenVideoStream(AVFormatContext* pFormatContext, AVCodecContext* pCodecContext, int streamIndex)
+{
+	AVCodecParameters* pCodecPar = NULL;
+	AVCodec* pCodec = NULL;
+	int ret = 0;
+	PacketQueueInit(&sVideoPacketQueue);
+	// 1. 为视频流构建解码器 AVCodecContext
+	// 1.1 获取解码器参数 AVCodecParameters
+	pCodecPar = pFormatContext->streams[streamIndex]->codecpar;
+
+	// 1.2 获取解码器
+	pCodec = (AVCodec*)avcodec_find_decoder(pCodecPar->codec_id);
+	if (pCodec == NULL)
+	{
+		cout << "Can't find codec!" << endl;
+		return -1;
+	}
+
+	// 1.3 构建解码器 AVCodecContext
+	pCodecContext = avcodec_alloc_context3(pCodec);
+	if (pCodecContext == NULL)
+	{
+		cout << "avcodec_alloc_context3() failed" << endl;
+		return -1;
+	}
+	ret = avcodec_parameters_to_context(pCodecContext, pCodecPar);
+	if (ret < 0)
+	{
+		cout << "avcodec_parameters_to_context() failed " << ret << endl;
+		return -1;
+	}
+	ret = avcodec_open2(pCodecContext, pCodec, NULL);
+	if (ret < 0)
+	{
+		cout << "avcodec_open2() failed " << ret << endl;
+		return -1;
+	}
+
+	int tempNum = pFormatContext->streams[streamIndex]->avg_frame_rate.num;
+	int tempDen = pFormatContext->streams[streamIndex]->avg_frame_rate.den;
+	int frameRate = tempDen > 0 ? tempNum / tempDen : 25;
+	int interval = tempNum > 0 ? tempDen * 1000 / tempNum : 40;
+	cout << "frame rate " << frameRate << " FPS, refresh interval " << interval << " ms" << endl;
+
+	SDL_AddTimer(interval, SDLTimeCbRefresh, NULL);
+	SDL_CreateThread(VideoThread, "video thread", pCodecContext);
+	return 0;
+}
