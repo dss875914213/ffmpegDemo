@@ -178,7 +178,7 @@ int AudioDecodeFrame(AVCodecContext* pCodecContext, AVPacket* pPacket, uint8_t* 
 
 			if (sAudioSwrContext) //重采样
 			{
-				const uint8_t** in = (const uint8_t**)pFrame->nb_samples;
+				const uint8_t** in = (const uint8_t**)pFrame->extended_data;
 				uint8_t** out = &sResampleBuffer;
 				int outCount = (int64_t)pFrame->nb_samples * sAudioParamTarget.freq / pFrame->sample_rate + 256;
 				int outSize = av_samples_get_buffer_size(NULL, sAudioParamTarget.channels, outCount, sAudioParamTarget.format, 0);
@@ -621,4 +621,142 @@ int OpenVideoStream(AVFormatContext* pFormatContext, AVCodecContext* pCodecConte
 	SDL_AddTimer(interval, SDLTimeCbRefresh, NULL);
 	SDL_CreateThread(VideoThread, "video thread", pCodecContext);
 	return 0;
+}
+
+int main(int argc, char* argv[])
+{
+	AVFormatContext* pFormatContext = NULL;
+	AVCodecContext* pAudioCodecContext = NULL;
+	AVCodecContext* pVideoCodecContext = NULL;
+	AVPacket* pPacket = NULL;
+	int audioIndex = -1;
+	int videoIndex = -1;
+	int ret = 0;
+	int result = 0;
+	if (argc < 2)
+	{
+		cout << "Please provide a movie file" << endl;
+		return -1;
+	}
+
+	// B1. 初始化SDL子系统
+	if (SDL_Init(SDL_INIT_AUDIO | SDL_INIT_VIDEO | SDL_INIT_TIMER))
+	{
+		cout << "SDL_Init() failed: " << SDL_GetError() << endl;
+		result = -1;
+		goto EXIT2;
+	}
+
+	// A1. 构建 AVFormatContext
+	// A1.1 打开视频文件：读取文件头，将文件格式信息存储在 fmtContext 中
+	ret = avformat_open_input(&pFormatContext, argv[1], NULL, NULL);
+	if (ret != 0)
+	{
+		cout << "avformat_open_input() failed " << ret << endl;
+		result = -1;
+		goto EXIT0;
+	}
+
+	// A1.2 搜索流信息：读取一段文件数据，尝试解码
+	ret = avformat_find_stream_info(pFormatContext, NULL);
+	if (ret < 0)
+	{
+		cout << "avformat_find_stream_info() failed " << ret << endl;
+		result = -1;
+		goto EXIT1;
+	}
+
+	av_dump_format(pFormatContext, 0, argv[1], 0);
+
+	// A2.查找第一个音频流/视频流
+	for (int i = 0; i < pFormatContext->nb_streams; i++)
+	{
+		if ((pFormatContext->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_AUDIO) && (audioIndex == -1))
+		{
+			audioIndex = i;
+			cout << "Find a audio stream, index " << audioIndex << endl;
+			// A3. 打开音频流
+			OpenAudioStream(pFormatContext, pAudioCodecContext, audioIndex);
+		}
+		if ((pFormatContext->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_VIDEO) && (videoIndex == -1))
+		{
+			videoIndex = i;
+			cout << "Find a video stream, index " << videoIndex << endl;
+			// A3. 打开视频流
+			OpenVideoStream(pFormatContext, pVideoCodecContext, videoIndex);
+		}
+		if (audioIndex != -1 && videoIndex != -1)
+			break;
+	}
+	if (audioIndex == -1 && videoIndex == -1)
+	{
+		cout << "Can't find any audio/video stream" << endl;
+		result = -1;
+		goto EXIT1;
+	}
+
+	pPacket = (AVPacket*)av_malloc(sizeof(AVPacket));
+	if (pPacket == NULL)
+	{
+		cout << "av_malloc() failed" << endl;
+		result = -1;
+		goto EXIT2;
+	}
+
+	// A4. 从视频文件中读取一个 packet, 压入音频和视频队列
+	while (1)
+	{
+		if (PacketQueueNumber(&sVideoPacketQueue) > 100 ||
+			PacketQueueNumber(&sAudioPacketQueue) > 500)
+		{
+			av_usleep(10000);
+			continue;
+		}
+		ret = av_read_frame(pFormatContext, pPacket);
+		if (ret < 0)
+		{
+			if ((ret == AVERROR_EOF) || avio_feof(pFormatContext->pb))
+			{
+				cout << "read end of file" << endl;
+				pPacket->data = NULL;
+				pPacket->size = 0;
+
+				// 输入文件已读完，发送 NULL packet 冲洗解码器
+				if (videoIndex != -1)
+				{
+					cout << "push a flush packet into video queue" << endl;
+					PacketQueuePush(&sVideoPacketQueue, pPacket);
+				}
+
+				if (audioIndex != -1)
+				{
+					cout << "push a flush packet into audio queue" << endl;
+					PacketQueuePush(&sAudioPacketQueue, pPacket);
+				}
+				break;
+			}
+		}
+		else
+		{
+			if (pPacket->stream_index == audioIndex)
+				PacketQueuePush(&sAudioPacketQueue, pPacket);
+			else if (pPacket->stream_index == videoIndex)
+				PacketQueuePush(&sVideoPacketQueue, pPacket);
+			else
+				av_packet_unref(pPacket);
+		}
+	}
+	while ((audioIndex >= 0 && (!sAudioDecodeFinished)) ||
+		(videoIndex >= 0 && (!sVideoDecodeFinished)))
+		SDL_Delay(100);
+	cout << "play finished. exit now ..." << endl;
+	SDL_Delay(200);
+EXIT3:
+	SDL_Quit();
+EXIT2:
+	av_packet_unref(pPacket);
+EXIT1:
+	avformat_close_input(&pFormatContext);
+EXIT0:
+	return result;
 }
