@@ -120,7 +120,7 @@ int PacketQueuePop(packetQueue* q, AVPacket* packet, int block)
 	return ret;
 }
 
-int AudioDecodeFrame(AVCodecContext* pCodecContext, AVPacket* pPacket, uint8_t* audioBuffer, int bufferSize)
+int AudioDecodeFrame(AVCodecContext* pCodecContext, uint8_t* audioBuffer, int bufferSize)
 {
 	AVFrame* pFrame = av_frame_alloc();
 	int frameSize = 0;
@@ -130,6 +130,8 @@ int AudioDecodeFrame(AVCodecContext* pCodecContext, AVPacket* pPacket, uint8_t* 
 	uint8_t* pCpBuffer = NULL;
 	int cpLen = 0;
 	bool needNew = false;
+	AVPacket pPacket;
+
 	while (1)
 	{
 		needNew = false;
@@ -217,16 +219,33 @@ int AudioDecodeFrame(AVCodecContext* pCodecContext, AVPacket* pPacket, uint8_t* 
 			result = cpLen;
 			goto EXIT;
 		}
+
+		// 1. 从队列中读出一包音频数据
+		if (PacketQueuePop(&sAudioPacketQueue, &pPacket, 1) == 0)
+		{
+			cout << "audio packet buffer empty..." << endl;
+			continue;
+		}
+
 		// 2 向解码器喂数据
 		if (needNew)
 		{
-			ret = avcodec_send_packet(pCodecContext, pPacket);
-			if (ret != 0)
+			if (pPacket.data == NULL)
 			{
-				cout << "avcodec_send_packet() failed " << ret << endl;
-				result = -1;
-				goto EXIT;
+				avcodec_flush_buffers(pCodecContext);
 			}
+			else
+			{
+				ret = avcodec_send_packet(pCodecContext, &pPacket);
+				if (ret != 0)
+				{
+					cout << "avcodec_send_packet() failed " << ret << endl;
+					result = -1;
+					goto EXIT;
+				}
+				av_packet_unref(&pPacket);
+			}
+			
 		}
 	}
 
@@ -244,7 +263,6 @@ void SDLAudioCallback(void* userdata, uint8_t* stream, int len)
 	static uint32_t sAudioLen = 0;
 	static uint32_t sTxIndex = 0;
 
-	AVPacket* pPacket;
 	int frameSize = 0;
 	int returnSize = 0;
 	int ret;
@@ -258,28 +276,18 @@ void SDLAudioCallback(void* userdata, uint8_t* stream, int len)
 		}
 		if (sTxIndex >= sAudioLen)
 		{
-			pPacket = (AVPacket*)av_malloc(sizeof(AVPacket));
-			// 1. 从队列中读出一包音频数据
-			if (PacketQueuePop(&sAudioPacketQueue, pPacket, 1) == 0)
-			{
-				cout << "audio packet buffer empty..." << endl;
-				continue;
-			}
-
 			// 2. 解码音频包
-			getSize = AudioDecodeFrame(pCodecContext, pPacket, sAudioBuffer, sizeof(sAudioBuffer));
+			getSize = AudioDecodeFrame(pCodecContext, sAudioBuffer, sizeof(sAudioBuffer));
 			if (getSize < 0)
 			{
 				sAudioLen = 1024;
 				memset(sAudioBuffer, 0, sAudioLen);
-				av_packet_unref(pPacket);
 			}
 			else if (getSize == 0)
 				sAudioDecodeFinished = true;
 			else
 			{
 				sAudioLen = getSize;
-				av_packet_unref(pPacket);
 			}
 			sTxIndex = 0;
 		}
@@ -739,7 +747,9 @@ int main(int argc, char* argv[])
 		else
 		{
 			if (pPacket->stream_index == audioIndex)
+			{
 				PacketQueuePush(&sAudioPacketQueue, pPacket);
+			}
 			else if (pPacket->stream_index == videoIndex)
 				PacketQueuePush(&sVideoPacketQueue, pPacket);
 			else
