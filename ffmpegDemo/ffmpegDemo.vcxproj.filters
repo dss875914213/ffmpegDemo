@@ -21,9 +21,45 @@
     <ClCompile Include="MySDL.cpp">
       <Filter>源文件</Filter>
     </ClCompile>
+    <ClCompile Include="audio.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="video.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="demux.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="frame.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="packet.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="player.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="MySDL.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="audio.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="video.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="demux.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="frame.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="packet.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="player.h">
       <Filter>头文件</Filter>
     </ClInclude>
   </ItemGroup>
