@@ -1,25 +1,4 @@
-/*******************************************************************************
- * player.c
- *
- * history:
- *   2018-11-27 - [lei]     Create file: a simplest ffmpeg player
- *   2018-12-01 - [lei]     Playing audio
- *   2018-12-06 - [lei]     Playing audio&vidio
- *   2019-01-06 - [lei]     Add audio resampling, fix bug of unsupported audio
- *                          format(such as planar)
- *   2019-01-16 - [lei]     Sync video to audio.
- *
- * details:
- *   A simple ffmpeg player.
- *
- * refrence:
- *   ffplay.c in FFmpeg 4.1 project.
- *******************************************************************************/
-
-#include <stdio.h>
-#include <stdbool.h>
-#include <assert.h>
-
+#include <iostream>
 #include "player.h"
 #include "frame.h"
 #include "packet.h"
@@ -27,259 +6,213 @@
 #include "video.h"
 #include "audio.h"
 
-static player_stat_t* player_init(const char* p_input_file);
-static int player_deinit(player_stat_t* is);
+using namespace std;
 
-// 返回值：返回上一帧的pts更新值(上一帧pts+流逝的时间)
-double get_clock(play_clock_t* c)
+static PlayerStation* PlayerInit(const char* pInputFile);
+static int PlayerDeinit(PlayerStation* is);
+
+// 返回值：返回上一帧 pts 更新值（上一帧 pts +流逝的时间）
+double GetClock(PlayClock* playClock)
 {
-    if (*c->queue_serial != c->serial)
-    {
-        return NAN;
-    }
-    if (c->paused)
-    {
-        return c->pts;
-    }
-    else
-    {
-        double time = av_gettime_relative() / 1000000.0;
-        double ret = c->pts_drift + time;   // 展开得： c->pts + (time - c->last_updated)
-        return ret;
-    }
+	if (*playClock->queueSerial != playClock->serial)
+		return NAN;
+	if (playClock->paused)
+		return playClock->pts;
+	else
+	{
+		double time = av_gettime_relative() / 1000000.0;
+		double ret = playClock->ptsDrift + time; // 展开得：c->pts + (time-c->last_updated)
+		return ret;
+	}
 }
 
-void set_clock_at(play_clock_t* c, double pts, int serial, double time)
+void SetClockAt(PlayClock* clock, double pts, int serial, double time)
 {
-    c->pts = pts;
-    c->last_updated = time;
-    c->pts_drift = c->pts - time;
-    c->serial = serial;
+	clock->pts = pts;
+	clock->lastUpdated = time;
+	clock->ptsDrift = clock->pts - time;
+	clock->serial = serial;
 }
 
-void set_clock(play_clock_t* c, double pts, int serial)
+void SetClock(PlayClock* clock, double pts, int serial)
 {
-    double time = av_gettime_relative() / 1000000.0;
-    set_clock_at(c, pts, serial, time);
+	double time = av_gettime_relative() / 1000000.0;
+	SetClockAt(clock, pts, serial, time);
 }
 
-static void set_clock_speed(play_clock_t* c, double speed)
+static void SetClockSpeed(PlayClock* clock, double speed)
 {
-    set_clock(c, get_clock(c), c->serial);
-    c->speed = speed;
+	SetClock(clock, GetClock(clock), clock->serial);
+	clock->speed = speed;
 }
 
-void init_clock(play_clock_t* c, int* queue_serial)
+void InitClock(PlayClock* clock, int* queueSerial)
 {
-    c->speed = 1.0;
-    c->paused = 0;
-    c->queue_serial = queue_serial;
-    set_clock(c, NAN, -1);
+	clock->speed = 1.0;
+	clock->paused = 0;
+	clock->queueSerial = queueSerial;
+	SetClock(clock, NAN, -1);
 }
 
-static void sync_play_clock_to_slave(play_clock_t* c, play_clock_t* slave)
+static void SyncPlayClockToSlave(PlayClock* playClock, PlayClock* slave)
 {
-    double clock = get_clock(c);
-    double slave_clock = get_clock(slave);
-    if (!isnan(slave_clock) && (isnan(clock) || fabs(clock - slave_clock) > AV_NOSYNC_THRESHOLD))
-        set_clock(c, slave_clock, slave->serial);
+	double clock = GetClock(playClock);
+	double slaveClock = GetClock(slave);
+	if (!isnan(slaveClock) && (isnan(clock) || fabs(clock - slaveClock) > AV_NOSYNC_THRESHOLD))
+		SetClock(playClock, slaveClock, slave->serial);
 }
 
-static void do_exit(player_stat_t* is)
+static void DoExit(PlayerStation* is)
 {
-    if (is)
-    {
-        player_deinit(is);
-    }
-
-    if (is->sdl_video.renderer)
-        SDL_DestroyRenderer(is->sdl_video.renderer);
-    if (is->sdl_video.window)
-        SDL_DestroyWindow(is->sdl_video.window);
-
-    avformat_network_deinit();
-
-    SDL_Quit();
-
-    exit(0);
+	if (is)
+		PlayerDeinit(is);
+	if (is->sdlVideo.renderer)
+		SDL_DestroyRenderer(is->sdlVideo.renderer);
+	if (is->sdlVideo.window)
+		SDL_DestroyWindow(is->sdlVideo.window);
+	avformat_network_deinit();
+	SDL_Quit();
+	exit(0);
 }
 
-static player_stat_t* player_init(const char* p_input_file)
+static PlayerStation* PlayerInit(const char* pInputFile)
 {
-    player_stat_t* is;
+	PlayerStation* is;
+	is = static_cast<PlayerStation*>(av_mallocz(sizeof(PlayerStation)));
+	if (!is)
+		return NULL;
+	is->filename = av_strdup(pInputFile);
+	if (is->filename == NULL)
+		goto FAIL;
+	if (FrameQueueInit(&is->videoFrameQueue, &is->videoPacketQueue, VIDEO_PICTURE_QUEUE_SIZE, 1) < 0 ||
+		FrameQueueInit(&is->audioFrameQueue, &is->audioPacketQueue, SAMPLE_QUEUE_SIZE, 1) < 0)
+		goto FAIL;
 
-    is = (player_stat_t*)av_mallocz(sizeof(player_stat_t));
-    if (!is)
-    {
-        return NULL;
-    }
+	if (PacketQueueInit(&is->videoPacketQueue) < 0 ||
+		PacketQueueInit(&is->audioPacketQueue) < 0)
+		goto FAIL;
+	AVPacket flushPacket;
+	flushPacket.data = NULL;
+	PacketQueuePut(&is->videoPacketQueue, &flushPacket);
+	PacketQueuePut(&is->audioPacketQueue, &flushPacket);
+	if (!(is->continueReadThread = SDL_CreateCond()))
+	{
+		av_log(NULL, AV_LOG_FATAL, "SDL_CreateCond(): %s\n", SDL_GetError());
+	FAIL:
+		PlayerDeinit(is);
+		// TODO 怎么循环了
+		goto FAIL;
+	}
+	InitClock(&is->videoPlayClock, &is->videoPacketQueue.serial);
+	InitClock(&is->audioPlayClock, &is->audioPacketQueue.serial);
 
-    is->filename = av_strdup(p_input_file);
-    if (is->filename == NULL)
-    {
-        goto fail;
-    }
+	is->abortRequest = 0;
+	if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_TIMER))
+	{
+		av_log(NULL, AV_LOG_FATAL, "Could not initialize SDL - %s\n", SDL_GetError());
+		av_log(NULL, AV_LOG_FATAL, "(Did you set the DISPLAY variable?)\n");
+		exit(1);
+	}
 
-    /* start video display */
-    if (frame_queue_init(&is->video_frm_queue, &is->video_pkt_queue, VIDEO_PICTURE_QUEUE_SIZE, 1) < 0 ||
-        frame_queue_init(&is->audio_frm_queue, &is->audio_pkt_queue, SAMPLE_QUEUE_SIZE, 1) < 0)
-    {
-        goto fail;
-    }
-
-    if (packet_queue_init(&is->video_pkt_queue) < 0 ||
-        packet_queue_init(&is->audio_pkt_queue) < 0)
-    {
-        goto fail;
-    }
-
-    AVPacket flush_pkt;
-    flush_pkt.data = NULL;
-    packet_queue_put(&is->video_pkt_queue, &flush_pkt);
-    packet_queue_put(&is->audio_pkt_queue, &flush_pkt);
-
-    if (!(is->continue_read_thread = SDL_CreateCond()))
-    {
-        av_log(NULL, AV_LOG_FATAL, "SDL_CreateCond(): %s\n", SDL_GetError());
-    fail:
-        player_deinit(is);
-        goto fail;
-    }
-
-    init_clock(&is->video_clk, &is->video_pkt_queue.serial);
-    init_clock(&is->audio_clk, &is->audio_pkt_queue.serial);
-
-    is->abort_request = 0;
-
-    if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_TIMER))
-    {
-        av_log(NULL, AV_LOG_FATAL, "Could not initialize SDL - %s\n", SDL_GetError());
-        av_log(NULL, AV_LOG_FATAL, "(Did you set the DISPLAY variable?)\n");
-        exit(1);
-    }
-
-    return is;
+	return is;
 }
 
 extern SDL_AudioDeviceID audioDevice;
-static int player_deinit(player_stat_t* is)
+static int PlayerDeinit(PlayerStation* is)
 {
-    /* XXX: use a special url_shutdown call to abort parse cleanly */
-    is->abort_request = 1;
-    SDL_PauseAudioDevice(audioDevice, 1);
-    SDL_WaitThread(is->read_tid, NULL);
-    frame_queue_signal(&is->video_frm_queue);
-    frame_queue_signal(&is->audio_frm_queue);
-    packet_queue_abort(&is->video_pkt_queue);
-    packet_queue_abort(&is->audio_pkt_queue);
+	is->abortRequest = 1;
+	SDL_PauseAudioDevice(audioDevice, 1);
+	SDL_WaitThread(is->readThreadID, NULL);
+	FrameQueueSignal(&is->videoFrameQueue);
+	FrameQueueSignal(&is->audioFrameQueue);
+	PacketQueueAbort(&is->videoPacketQueue);
+	PacketQueueAbort(&is->audioPacketQueue);
 
-    SDL_WaitThread(is->videoDecode_tid, NULL);
-    SDL_WaitThread(is->videoPlay_tid, NULL);
-    SDL_WaitThread(is->audioDecode_tid, NULL);
+	SDL_WaitThread(is->videoDecodeThreadID, NULL);
+	SDL_WaitThread(is->videoPlayThreadID, NULL);
+	SDL_WaitThread(is->audioDecodeThreadID, NULL);
 
-    /* close each stream */
-    if (is->audio_idx >= 0)
-    {
-        //stream_component_close(is, is->p_audio_stream);
-    }
-    if (is->video_idx >= 0)
-    {
-        //stream_component_close(is, is->p_video_stream);
-    }
+	avformat_close_input(&is->pFormatContext);
+	PacketQueueDestroy(&is->videoPacketQueue);
+	PacketQueueDestroy(&is->audioPacketQueue);
 
-    avformat_close_input(&is->p_fmt_ctx);
-    packet_queue_destroy(&is->video_pkt_queue);
-    packet_queue_destroy(&is->audio_pkt_queue);
+	FrameQueueDestroy(&is->videoFrameQueue);
+	FrameQueueDestroy(&is->audioFrameQueue);
 
-    /* free all pictures */
-    frame_queue_destory(&is->video_frm_queue);
-    frame_queue_destory(&is->audio_frm_queue);
-
-    SDL_DestroyCond(is->continue_read_thread);
-    sws_freeContext(is->img_convert_ctx);
-    av_free(is->filename);
-    if (is->sdl_video.texture)
-    {
-        SDL_DestroyTexture(is->sdl_video.texture);
-    }
-
-    av_free(is);
-
-    return 0;
+	SDL_DestroyCond(is->continueReadThread);
+	sws_freeContext(is->imgConvertContext);
+	av_free(is->filename);
+	if (is->sdlVideo.texture)
+		SDL_DestroyTexture(is->sdlVideo.texture);
+	av_free(is);
+	return 0;
 }
 
-/* pause or resume the video */
-static void stream_toggle_pause(player_stat_t* is)
+static void StreamTogglePause(PlayerStation* is)
 {
-    if (is->paused)
-    {
-        // 这里表示当前是暂停状态，将切换到继续播放状态。在继续播放之前，先将暂停期间流逝的时间加到frame_timer中
-        is->frame_timer += av_gettime_relative() / 1000000.0 - is->video_clk.last_updated;
-        set_clock(&is->video_clk, get_clock(&is->video_clk), is->video_clk.serial);
-    }
-    is->paused = is->audio_clk.paused = is->video_clk.paused = !is->paused;
+	if (is->paused)
+	{
+		is->frameTimer += av_gettime_relative() / 1000000.0 - is->videoPlayClock.lastUpdated;
+		SetClock(&is->videoPlayClock, GetClock(&is->videoPlayClock), is->videoPlayClock.serial);
+	}
+	is->paused = is->audioPlayClock.paused = is->videoPlayClock.paused = !is->paused;
 }
 
-static void toggle_pause(player_stat_t* is)
+static void TogglePause(PlayerStation* is)
 {
-    stream_toggle_pause(is);
-    is->step = 0;
+	StreamTogglePause(is);
+	is->step = 0;
 }
 
-int player_running(const char* p_input_file)
+int PlayerRunning(const char* pInputFile)
 {
-    player_stat_t* is = NULL;
+	PlayerStation* is = NULL;
+	is = PlayerInit(pInputFile);
+	if (is == NULL)
+	{
+		cout << "player init failed" << endl;
+		DoExit(is);
+	}
+	OpenDemux(is);
+	OpenVideo(is);
+	OpenAudio(is);
 
-    is = player_init(p_input_file);
-    if (is == NULL)
-    {
-        printf("player init failed\n");
-        do_exit(is);
-    }
+	SDL_Event event;
+	while (1)
+	{
+		SDL_PumpEvents();
+		while (!SDL_PeepEvents(&event, 1, SDL_GETEVENT, SDL_FIRSTEVENT, SDL_LASTEVENT))
+		{
+			av_usleep(100000);
+			SDL_PumpEvents();
+		}
 
-    open_demux(is);
-    open_video(is);
-    open_audio(is);
+		switch (event.type)
+		{
+		case SDL_KEYDOWN:
+			if (event.key.keysym.sym == SDLK_ESCAPE)
+			{
+				DoExit(is);
+				break;
+			}
+			switch (event.key.keysym.sym)
+			{
+			case SDLK_SPACE:
+				TogglePause(is);
+				break;
+			case SDL_WINDOWEVENT:
+				break;
+			default:
+				break;
+			}
+		case SDL_QUIT:
+		case FF_QUIT_EVENT:
+			DoExit(is);
+			break;
 
-    SDL_Event event;
-
-    while (1)
-    {
-        SDL_PumpEvents();
-        // SDL event队列为空，则在while循环中播放视频帧。否则从队列头部取一个event，退出当前函数，在上级函数中处理event
-        while (!SDL_PeepEvents(&event, 1, SDL_GETEVENT, SDL_FIRSTEVENT, SDL_LASTEVENT))
-        {
-            av_usleep(100000);
-            SDL_PumpEvents();
-        }
-
-        switch (event.type) {
-        case SDL_KEYDOWN:
-            if (event.key.keysym.sym == SDLK_ESCAPE)
-            {
-                do_exit(is);
-                break;
-            }
-
-            switch (event.key.keysym.sym) {
-            case SDLK_SPACE:        // 空格键：暂停
-                toggle_pause(is);
-                break;
-            case SDL_WINDOWEVENT:
-                break;
-            default:
-                break;
-            }
-            break;
-
-        case SDL_QUIT:
-        case FF_QUIT_EVENT:
-            do_exit(is);
-            break;
-        default:
-            break;
-        }
-    }
-
-    return 0;
+		default:
+			break;
+		}
+	}
+	return 0;
 }

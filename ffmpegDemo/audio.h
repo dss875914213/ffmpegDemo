@@ -1,8 +1,5 @@
-#ifndef __AUDIO_H__
-#define __AUDIO_H__
-
+#pragma once
 #include "player.h"
 
-int open_audio(player_stat_t* is);
+int OpenAudio(PlayerStation* is);
 
-#endif

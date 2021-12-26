@@ -1,143 +1,144 @@
 #include "frame.h"
-#include "player.h"
 
-void frame_queue_unref_item(frame_t* vp)
+void FrameQueueUnrefItem(Frame* vp)
 {
 	av_frame_unref(vp->frame);
 }
 
-int frame_queue_init(frame_queue_t* f, packet_queue_t* pktq, int max_size, int keep_last)
+int FrameQueueInit(FrameQueue* frameQueue, PacketQueue* packetQueue, int maxSize, int keepLast)
 {
-	int i;
-	memset(f, 0, sizeof(frame_queue_t));
-	if (!(f->mutex = SDL_CreateMutex())) {
-		av_log(NULL, AV_LOG_FATAL, "SDL_CreateMutex(): %s\n", SDL_GetError());
+	memset(frameQueue, 0, sizeof(FrameQueue));
+	if (!(frameQueue->mutex = SDL_CreateMutex()))
+	{
+		av_log(NULL, AV_LOG_FATAL, "SDL_CreateMutex():%s\n", SDL_GetError());
 		return AVERROR(ENOMEM);
 	}
-	if (!(f->cond = SDL_CreateCond())) {
+
+	if (!(frameQueue->cond = SDL_CreateCond()))
+	{
 		av_log(NULL, AV_LOG_FATAL, "SDL_CreateCond(): %s\n", SDL_GetError());
 		return AVERROR(ENOMEM);
 	}
-	f->pktq = pktq;
-	f->max_size = FFMIN(max_size, FRAME_QUEUE_SIZE);
-	f->keep_last = !!keep_last;
-	for (i = 0; i < f->max_size; i++)
-		if (!(f->queue[i].frame = av_frame_alloc()))
+	frameQueue->packetQueue = packetQueue;
+	frameQueue->maxSize = FFMIN(maxSize, FRAME_QUEUE_SIZE);
+	frameQueue->keepLast = !!keepLast;
+	for (int i = 0; i < frameQueue->maxSize; i++)
+	{
+		if (!(frameQueue->queue[i].frame = av_frame_alloc()))
 			return AVERROR(ENOMEM);
+	}
 	return 0;
 }
 
-void frame_queue_destory(frame_queue_t* f)
+void FrameQueueDestroy(FrameQueue* frameQueue)
 {
-	int i;
-	for (i = 0; i < f->max_size; i++) {
-		frame_t* vp = &f->queue[i];
-		frame_queue_unref_item(vp);
-		av_frame_free(&vp->frame);
+	for (int i = 0; i < frameQueue->maxSize; i++)
+	{
+		Frame* videoFrame = &frameQueue->queue[i];
+		FrameQueueUnrefItem(videoFrame);
+		av_frame_free(&videoFrame->frame);
 	}
-	SDL_DestroyMutex(f->mutex);
-	SDL_DestroyCond(f->cond);
+	SDL_DestroyMutex(frameQueue->mutex);
+	SDL_DestroyCond(frameQueue->cond);
 }
 
-void frame_queue_signal(frame_queue_t* f)
+void FrameQueueSignal(FrameQueue* frameQueue)
 {
-	SDL_LockMutex(f->mutex);
-	f->pktq->abort_request = 1;
-	SDL_CondSignal(f->cond);
-	SDL_UnlockMutex(f->mutex);
+	SDL_LockMutex(frameQueue->mutex);
+	frameQueue->packetQueue->abortRequest = 1;
+	SDL_CondSignal(frameQueue->cond);
+	SDL_UnlockMutex(frameQueue->mutex);
 }
 
-frame_t* frame_queue_peek(frame_queue_t* f)
+Frame* FrameQueuePeek(FrameQueue* frameQueue)
 {
-	return &f->queue[(f->rindex + f->rindex_shown) % f->max_size];
+	return &frameQueue->queue[(frameQueue->rindex + frameQueue->rindexShown) % frameQueue->maxSize];
 }
 
-frame_t* frame_queue_peek_next(frame_queue_t* f)
+Frame* FrameQueuePeekNext(FrameQueue* frameQueue)
 {
-	return &f->queue[(f->rindex + f->rindex_shown + 1) % f->max_size];
+	return &frameQueue->queue[(frameQueue->rindex + frameQueue->rindexShown + 1) % frameQueue->maxSize];
 }
 
-// 取出此帧进行播放，只读取不删除，不删除是因为此帧需要缓存下来供下一次使用。播放后，此帧变为上一帧
-frame_t* frame_queue_peek_last(frame_queue_t* f)
+// 取出此帧进行播放，只读取不删除
+Frame* FrameQueuePeekLast(FrameQueue* frameQueue)
 {
-	return &f->queue[f->rindex];
+	return &frameQueue->queue[frameQueue->rindex];
 }
 
-// 向队列尾部申请一个可写的帧空间，若无空间可写，则等待
-frame_t* frame_queue_peek_writable(frame_queue_t* f)
+// 向队列尾部申请一个可写的帧空间，若无空间则等待
+Frame* FrameQueuePeekWritable(FrameQueue* frameQueue)
 {
-	/* wait until we have space to put a new frame */
-	SDL_LockMutex(f->mutex);
-	while (f->size >= f->max_size &&
-		!f->pktq->abort_request) {
-		SDL_CondWait(f->cond, f->mutex);
+	SDL_LockMutex(frameQueue->mutex);
+	while (frameQueue->size >= frameQueue->maxSize &&
+		!frameQueue->packetQueue->abortRequest)
+	{
+		SDL_CondWait(frameQueue->cond, frameQueue->mutex);
 	}
-	SDL_UnlockMutex(f->mutex);
-
-	if (f->pktq->abort_request)
+	SDL_UnlockMutex(frameQueue->mutex);
+	if (frameQueue->packetQueue->abortRequest)
 		return NULL;
-
-	return &f->queue[f->windex];
+	return &frameQueue->queue[frameQueue->windex];
 }
 
-// 从队列头部读取一帧，只读取不删除，若无帧可读则等待
-frame_t* frame_queue_peek_readable(frame_queue_t* f)
+// 从队列头部读取一帧，只读取不删除
+Frame* FrameQueuePeekReadable(FrameQueue* frameQueue)
 {
-	/* wait until we have a readable a new frame */
-	SDL_LockMutex(f->mutex);
-	while (f->size - f->rindex_shown <= 0 &&
-		!f->pktq->abort_request) {
-		SDL_CondWait(f->cond, f->mutex);
+	SDL_LockMutex(frameQueue->mutex);
+	while (frameQueue->size - frameQueue->rindexShown <= 0 &&
+		!frameQueue->packetQueue->abortRequest)
+	{
+		SDL_CondWait(frameQueue->cond, frameQueue->mutex);
 	}
-	SDL_UnlockMutex(f->mutex);
-
-	if (f->pktq->abort_request)
+	SDL_UnlockMutex(frameQueue->mutex);
+	if (frameQueue->packetQueue->abortRequest)
 		return NULL;
-
-	return &f->queue[(f->rindex + f->rindex_shown) % f->max_size];
+	return &frameQueue->queue[(frameQueue->rindex + frameQueue->rindexShown) % frameQueue->maxSize];
 }
 
 // 向队列尾部压入一帧，只更新计数与写指针，因此调用此函数前应将帧数据写入队列相应位置
-void frame_queue_push(frame_queue_t* f)
+void FrameQueuePush(FrameQueue* frameQueue)
 {
-	if (++f->windex == f->max_size)
-		f->windex = 0;
-	SDL_LockMutex(f->mutex);
-	f->size++;
-	SDL_CondSignal(f->cond);
-	SDL_UnlockMutex(f->mutex);
+	if (++frameQueue->windex == frameQueue->maxSize)
+		frameQueue->windex = 0;
+	SDL_LockMutex(frameQueue->mutex);
+	frameQueue->size++;
+	SDL_CondSignal(frameQueue->cond);
+	SDL_UnlockMutex(frameQueue->mutex);
 }
 
-// 读指针(rindex)指向的帧已显示，删除此帧，注意不读取直接删除。读指针加1
-void frame_queue_next(frame_queue_t* f)
+// 读指针指向的帧已显示，删除此帧，注意不读取直接删除。读指针加 1
+void FrameQueueNext(FrameQueue* frameQueue)
 {
-	if (f->keep_last && !f->rindex_shown) {
-		f->rindex_shown = 1;
+	if (frameQueue->keepLast && !frameQueue->rindexShown)
+	{
+		frameQueue->rindexShown = 1;
 		return;
 	}
-	frame_queue_unref_item(&f->queue[f->rindex]);
-	if (++f->rindex == f->max_size)
-		f->rindex = 0;
-	SDL_LockMutex(f->mutex);
-	f->size--;
-	SDL_CondSignal(f->cond);
-	SDL_UnlockMutex(f->mutex);
+
+	FrameQueueUnrefItem(&frameQueue->queue[frameQueue->rindex]);
+	if (++frameQueue->rindex == frameQueue->maxSize)
+		frameQueue->rindex = 0;
+	SDL_LockMutex(frameQueue->mutex);
+	frameQueue->size--;
+	SDL_CondSignal(frameQueue->cond);
+	SDL_UnlockMutex(frameQueue->mutex);
 }
 
-// frame_queue中未显示的帧数
-/* return the number of undisplayed frames in the queue */
-int frame_queue_nb_remaining(frame_queue_t* f)
+// frameQueue 中未显示的帧数
+int FrameQueueNumberRemaining(FrameQueue* frameQueue)
 {
-	return f->size - f->rindex_shown;
+	return frameQueue->size - frameQueue->rindexShown;
 }
 
-/* return last shown position */
-int64_t frame_queue_last_pos(frame_queue_t* f)
+int64_t FrameQueueLastPosition(FrameQueue* frameQueue)
 {
-	frame_t* fp = &f->queue[f->rindex];
-	if (f->rindex_shown && fp->serial == f->pktq->serial)
-		return fp->pos;
+	Frame* frame = &frameQueue->queue[frameQueue->rindex];
+	if (frameQueue->rindexShown && frame->serial == frameQueue->packetQueue->serial)
+		return frame->pos;
 	else
 		return -1;
 }
+
+
 

@@ -1,206 +1,177 @@
 #include "demux.h"
 #include "packet.h"
+#include <iostream>
+using namespace std;
 
-static int decode_interrupt_cb(void* ctx)
+static int DecodeInterruptCallback(void* context)
 {
-	player_stat_t* is = (player_stat_t*)ctx;
-	return is->abort_request;
+	PlayerStation* is = static_cast<PlayerStation*>(context);
+	return is->abortRequest;
 }
 
-static int demux_init(player_stat_t* is)
+static int DemuexInit(PlayerStation* is)
 {
-	AVFormatContext* p_fmt_ctx = NULL;
-	int err, i, ret;
-	int a_idx;
-	int v_idx;
-
-	p_fmt_ctx = avformat_alloc_context();
-	if (!p_fmt_ctx)
+	AVFormatContext* pFormatContext = NULL;
+	int error;
+	int ret;
+	int audioIndex;
+	int videoIndex;
+	pFormatContext = avformat_alloc_context();
+	if (!pFormatContext)
 	{
-		printf("Could not allocate context.\n");
+		cout << "Could not allocate context." << endl;
 		ret = AVERROR(ENOMEM);
-		goto fail;
+		goto FAIL;
 	}
 
-	// 中断回调机制。为底层I/O层提供一个处理接口，比如中止IO操作。
-	p_fmt_ctx->interrupt_callback.callback = decode_interrupt_cb;
-	p_fmt_ctx->interrupt_callback.opaque = is;
+	// 中断回调机制。为底层 I/O 层提供一个处理接口，比如中止 IO 操作
+	pFormatContext->interrupt_callback.callback = DecodeInterruptCallback;
+	pFormatContext->interrupt_callback.opaque = is;
 
-	// 1. 构建AVFormatContext
-	// 1.1 打开视频文件：读取文件头，将文件格式信息存储在"fmt context"中
-	err = avformat_open_input(&p_fmt_ctx, is->filename, NULL, NULL);
-	if (err < 0)
+	// 1.构建 AVFormatContext
+	// 1.1 打开视频文件：读取文件头，将文件格式信息存储在 frame context 中
+	error = avformat_open_input(&pFormatContext, is->filename, NULL, NULL);
+	if (error < 0)
 	{
-		printf("avformat_open_input() failed %d\n", err);
+		cout << "avformat_open_input() failed " << error << endl;
 		ret = -1;
-		goto fail;
+		goto FAIL;
 	}
-	is->p_fmt_ctx = p_fmt_ctx;
+	is->pFormatContext = pFormatContext;
 
-	// 1.2 搜索流信息：读取一段视频文件数据，尝试解码，将取到的流信息填入p_fmt_ctx->streams
-	//     ic->streams是一个指针数组，数组大小是pFormatCtx->nb_streams
-	err = avformat_find_stream_info(p_fmt_ctx, NULL);
-	if (err < 0)
+	// 1.2 搜索流信息：读取一段视频文件数据，尝试解码，将取到的流信息填入 pFormatContext->streams
+	// ic->streams 是一个指针数组，数组大小是 pFormatContext->nb_streams
+	error = avformat_find_stream_info(pFormatContext, NULL);
+	if (error < 0)
 	{
-		printf("avformat_find_stream_info() failed %d\n", err);
+		cout << "avformat_find_stream_info() failed " << error << endl;
 		ret = -1;
-		goto fail;
+		goto FAIL;
 	}
 
-	// 2. 查找第一个音频流/视频流
-	a_idx = -1;
-	v_idx = -1;
-	for (i = 0; i < (int)p_fmt_ctx->nb_streams; i++)
+	// 2. 查找第一个音频流/ 视频流
+	audioIndex = -1;
+	videoIndex = -1;
+	for (int i = 0; i < pFormatContext->nb_streams; i++)
 	{
-		if ((p_fmt_ctx->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_AUDIO) &&
-			(a_idx == -1))
+		if ((pFormatContext->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_AUDIO) && (audioIndex == -1))
 		{
-			a_idx = i;
-			printf("Find a audio stream, index %d\n", a_idx);
+			audioIndex = i;
+			cout << "Find a audio stream, index " << audioIndex << endl;
 		}
-		if ((p_fmt_ctx->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_VIDEO) &&
-			(v_idx == -1))
+		if ((pFormatContext->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_VIDEO) && (videoIndex == -1))
 		{
-			v_idx = i;
-			printf("Find a video stream, index %d\n", v_idx);
+			videoIndex = i;
+			cout << "Find a video stream, index " << videoIndex << endl;
 		}
-		if (a_idx != -1 && v_idx != -1)
-		{
+		if (audioIndex != -1 && videoIndex != -1)
 			break;
-		}
 	}
-	if (a_idx == -1 && v_idx == -1)
+	if (audioIndex == -1 && videoIndex == -1)
 	{
-		printf("Cann't find any audio/video stream\n");
+		cout << "Can't find any audio/video stream" << endl;
 		ret = -1;
-	fail:
-		if (p_fmt_ctx != NULL)
-		{
-			avformat_close_input(&p_fmt_ctx);
-		}
+	FAIL:
+		if (pFormatContext != NULL)
+			avformat_close_input(&pFormatContext);
 		return ret;
 	}
-
-	is->audio_idx = a_idx;
-	is->video_idx = v_idx;
-	is->p_audio_stream = p_fmt_ctx->streams[a_idx];
-	is->p_video_stream = p_fmt_ctx->streams[v_idx];
-
+	is->audioIndex = audioIndex;
+	is->videoIndex = videoIndex;
+	is->pAudioStream = pFormatContext->streams[audioIndex];
+	is->pVideoStream = pFormatContext->streams[videoIndex];
 	return 0;
 }
 
-int demux_deinit()
+int DemuxDeinit()
 {
 	return 0;
 }
 
-static int stream_has_enough_packets(AVStream* st, int stream_id, packet_queue_t* queue)
+static int StreamHasEnoughPackets(AVStream* stream, int streamIndex, PacketQueue* queue)
 {
-	return stream_id < 0 ||
-		queue->abort_request ||
-		(st->disposition & AV_DISPOSITION_ATTACHED_PIC) ||
-		queue->nb_packets > MIN_FRAMES && (!queue->duration || av_q2d(st->time_base) * queue->duration > 1.0);
+	return streamIndex<0 ||
+		queue->abortRequest ||
+		(stream->disposition & AV_DISPOSITION_ATTACHED_PIC) ||
+		queue->numberPackets>MIN_FRAMES && (!queue->duration || av_q2d(stream->time_base) * queue->duration > 1.0);
 }
 
-/* this thread gets the stream from the disk or the network */
-static int demux_thread(void* arg)
+static int DemuxThread(void* arg)
 {
-	player_stat_t* is = (player_stat_t*)arg;
-	AVFormatContext* p_fmt_ctx = is->p_fmt_ctx;
+	PlayerStation* is = static_cast<PlayerStation*>(arg);
+	AVFormatContext* pFormatContext = is->pFormatContext;
 	int ret;
 	AVPacket pkt1, * pkt = &pkt1;
-
-	SDL_mutex* wait_mutex = SDL_CreateMutex();
-
-	printf("demux_thread running...\n");
+	SDL_mutex* waitMutex = SDL_CreateMutex();
+	cout << "demux_thread running..." << endl;
 
 	// 4. 解复用处理
 	while (1)
 	{
-		if (is->abort_request)
-		{
+		if (is->abortRequest)
 			break;
-		}
-
-		/* if the queue are full, no need to read more */
-		if (is->audio_pkt_queue.size + is->video_pkt_queue.size > MAX_QUEUE_SIZE ||
-			(stream_has_enough_packets(is->p_audio_stream, is->audio_idx, &is->audio_pkt_queue) &&
-				stream_has_enough_packets(is->p_video_stream, is->video_idx, &is->video_pkt_queue)))
+		if (is->audioPacketQueue.size + is->videoPacketQueue.size > MAX_QUEUE_SIZE ||
+			(StreamHasEnoughPackets(is->pAudioStream, is->audioIndex, &is->audioPacketQueue) &&
+				StreamHasEnoughPackets(is->pVideoStream, is->videoIndex, &is->videoPacketQueue)))
 		{
-			/* wait 10 ms */
-			SDL_LockMutex(wait_mutex);
-			SDL_CondWaitTimeout(is->continue_read_thread, wait_mutex, 10);
-			SDL_UnlockMutex(wait_mutex);
+			SDL_LockMutex(waitMutex);
+			SDL_CondWaitTimeout(is->continueReadThread, waitMutex, 10);
+			SDL_UnlockMutex(waitMutex);
 			continue;
 		}
 
-		// 4.1 从输入文件中读取一个packet
-		ret = av_read_frame(is->p_fmt_ctx, pkt);
+		// 4.1 从输入文件中读取一个 packet
+		ret = av_read_frame(is->pFormatContext, pkt);
 		if (ret < 0)
 		{
-			if ((ret == AVERROR_EOF))// || avio_feof(ic->pb)) && !is->eof)
+			if (ret == AVERROR_EOF)
 			{
-				// 输入文件已读完，则往packet队列中发送NULL packet，以冲洗(flush)解码器，否则解码器中缓存的帧取不出来
-				if (is->video_idx >= 0)
-				{
-					packet_queue_put_nullpacket(&is->video_pkt_queue, is->video_idx);
-				}
-				if (is->audio_idx >= 0)
-				{
-					packet_queue_put_nullpacket(&is->audio_pkt_queue, is->audio_idx);
-				}
+				// 输入文件已读完，则往 packet 队列中发送 NULL packet, 以冲洗 flush 解码器,否则解码器中缓存的帧取不出来
+				if (is->videoIndex >= 0)
+					PacketQueuePutNullPacket(&is->videoPacketQueue, is->videoIndex);
+				if (is->audioIndex >= 0)
+					PacketQueuePutNullPacket(&is->audioPacketQueue, is->audioIndex);
 			}
-
-			SDL_LockMutex(wait_mutex);
-			SDL_CondWaitTimeout(is->continue_read_thread, wait_mutex, 10);
-			SDL_UnlockMutex(wait_mutex);
+			SDL_LockMutex(waitMutex);
+			SDL_CondWaitTimeout(is->continueReadThread, waitMutex, 10);
+			SDL_UnlockMutex(waitMutex);
 			continue;
 		}
 
-		// 4.3 根据当前packet类型(音频、视频、字幕)，将其存入对应的packet队列
-		if (pkt->stream_index == is->audio_idx)
-		{
-			packet_queue_put(&is->audio_pkt_queue, pkt);
-		}
-		else if (pkt->stream_index == is->video_idx)
-		{
-			packet_queue_put(&is->video_pkt_queue, pkt);
-		}
+		// 4.3 根据当前 packet 类型(音频、视频、字幕),将其存入对应的 packet 队列
+		if (pkt->stream_index == is->audioIndex)
+			PacketQueuePut(&is->audioPacketQueue, pkt);
+		else if (pkt->stream_index == is->videoIndex)
+			PacketQueuePut(&is->videoPacketQueue, pkt);
 		else
-		{
 			av_packet_unref(pkt);
-		}
 	}
-
 	ret = 0;
-
 	if (ret != 0)
 	{
 		SDL_Event event;
-
 		event.type = FF_QUIT_EVENT;
 		event.user.data1 = is;
 		SDL_PushEvent(&event);
 	}
-
-	SDL_DestroyMutex(wait_mutex);
+	SDL_DestroyMutex(waitMutex);
 	return 0;
 }
 
-int open_demux(player_stat_t* is)
+int OpenDemux(PlayerStation* is)
 {
-	if (demux_init(is) != 0)
+	if (DemuexInit(is) != 0)
 	{
-		printf("demux_init() failed\n");
+		cout << "demux_init() failed" << endl;
 		return -1;
 	}
 
-	is->read_tid = SDL_CreateThread(demux_thread, "demux_thread", is);
-	if (is->read_tid == NULL)
+	is->readThreadID = SDL_CreateThread(DemuxThread, "demuxThread", is);
+	if (is->readThreadID == NULL)
 	{
-		printf("SDL_CreateThread() failed: %s\n", SDL_GetError());
+		cout << "SDL_CreateThread() failed: " << SDL_GetError() << endl;
 		return -1;
 	}
-
 	return 0;
 }
+
