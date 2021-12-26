@@ -240,7 +240,7 @@ RETRY:
 	is->frameTimer += delay;
 	// 校正 frame_timer 值：若 frame_timer 落后于当前系统时间太久(超过最大同步阈值),则更新当前系统时间
 	if (delay > 0 && time - is->frameTimer > AV_SYNC_THRESHOLD_MAX)
-		is->frameTimer = true;
+		is->frameTimer = time;
 	SDL_LockMutex(is->videoFrameQueue.mutex);
 	if (!isnan(vp->pts))
 		UpdateVideoPts(is, vp->pts, vp->pos, vp->serial); // 更新视频时钟：时间戳、时钟时间
@@ -412,7 +412,3 @@ int OpenVideo(PlayerStation* is)
 	OpenVideoPlaying(is);
 	return 0;
 }
-
-
-
-

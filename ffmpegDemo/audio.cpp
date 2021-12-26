@@ -171,7 +171,7 @@ static int AudioResample(PlayerStation* is, int64_t audioCallbackTime)
 #endif
 
 	// 若队列头部可读，则由 audioFrame 指向可读帧
-	if (!(audioFrame = FrameQueuePeekWritable(&is->audioFrameQueue)))
+	if (!(audioFrame = FrameQueuePeekReadable(&is->audioFrameQueue)))
 		return -1;
 	FrameQueueNext(&is->audioFrameQueue);
 
@@ -286,6 +286,7 @@ static int OpenAudioPlaying(void* arg)
 	is->audioParamTarget.fmt = AV_SAMPLE_FMT_S16;
 	is->audioParamTarget.freq = actualSpec.freq;
 	is->audioParamTarget.channelLayout = av_get_default_channel_layout(actualSpec.channels);
+	is->audioParamTarget.channels = actualSpec.channels;
 	is->audioParamTarget.frameSize = av_samples_get_buffer_size(NULL, actualSpec.channels, 1, is->audioParamTarget.fmt, 1);
 	is->audioParamTarget.bytesPerSec = av_samples_get_buffer_size(NULL, actualSpec.channels, actualSpec.freq, is->audioParamTarget.fmt, 1);
 	if (is->audioParamTarget.bytesPerSec <= 0 || is->audioParamTarget.frameSize <= 0)
