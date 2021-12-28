@@ -2,21 +2,25 @@
 #include <iostream>
 using namespace std;
 
+// 初始化编码队列
 int PacketQueueInit(PacketQueue* packetQueue)
 {
 	memset(packetQueue, 0, sizeof(PacketQueue));
+	// 创建互斥量
 	packetQueue->mutex = SDL_CreateMutex();
 	if (!packetQueue->mutex)
 	{
 		cout << "SDL_CreateMutex(): " << SDL_GetError() << endl;
 		return AVERROR(ENOMEM);
 	}
+	// 创建条件变量
 	packetQueue->cond = SDL_CreateCond();
 	if (!packetQueue->cond)
 	{
 		cout << "SDL_CreateCond(): " << SDL_GetError() << endl;
 		return AVERROR(ENOMEM);
 	}
+	// 设置停止请求为 0
 	packetQueue->abortRequest = 0;
 	return 0;
 }
@@ -30,22 +34,31 @@ int PacketQueuePut(PacketQueue* packetQueue, AVPacket* packet)
 		cout << "[packet] is not reference counted" << endl;
 		return -1;
 	}
+	// pktList 分配内存
 	pktList = static_cast<AVPacketList*>(av_malloc(sizeof(AVPacketList)));
 	if (!pktList)
 		return -1;
 
+	// 构建 pktList， 并赋与初值
 	pktList->pkt = *packet;
 	pktList->next = NULL;
 
+	// 加锁
 	SDL_LockMutex(packetQueue->mutex);
+	// 如果队列为空,则将该数据作为队头
 	if (!packetQueue->lastPacket)
 		packetQueue->firstPacket = pktList;
-	else
+	else  // 否则，将数据添加到尾部
 		packetQueue->lastPacket->next = pktList;
+	// 更新队列尾部，为新加入的数据
 	packetQueue->lastPacket = pktList;
+	//未解码帧数 +1
 	packetQueue->numberPackets++;
+	// 队列长度 + 新加入数据长度
 	packetQueue->size += pktList->pkt.size;
+	// 重启等待此信号变量的线程
 	SDL_CondSignal(packetQueue->cond);
+	// 解锁
 	SDL_UnlockMutex(packetQueue->mutex);
 	return 0;
 }

@@ -282,12 +282,16 @@ static int VideoPlayingThread(void* arg)
 	return 0;
 }
 
+// 打开视频播放  初始化格式转化上下文, 初始化SDL 图像渲染功能, 开启视频渲染线程
 static int OpenVideoPlaying(void* arg)
 {
 	PlayerStation* is = static_cast<PlayerStation*>(arg);
 	int ret;
+	// 视频缓冲区大小
 	int bufferSize;
+	// 视频缓冲区地址
 	uint8_t* buffer = NULL;
+	// 分配格式转换后的 frame
 	is->pFrameYUV = av_frame_alloc();
 	if (is->pFrameYUV == NULL)
 	{
@@ -295,7 +299,10 @@ static int OpenVideoPlaying(void* arg)
 		return -1;
 	}
 	// 为AVFrame.*data[] 手工分配缓冲区，用于存储 sws_scale 中目的帧视频数据
+	// 视频格式, 视频宽度, 视频高度, 视频对齐字节数
+	// 此处 bufferSize = width*height*1.5
 	bufferSize = av_image_get_buffer_size(AV_PIX_FMT_YUV420P, is->pVideoCodecContext->width, is->pVideoCodecContext->height, 1);
+	// 设置缓冲区空间
 	buffer = static_cast<uint8_t*>(av_malloc(bufferSize));
 	if (buffer == NULL)
 	{
@@ -304,8 +311,8 @@ static int OpenVideoPlaying(void* arg)
 	}
 
 	// 使用给定参数设定 pFrameYUV->data 和 pFrameYUV->linesize
-	ret = av_image_fill_arrays(is->pFrameYUV->data, is->pFrameYUV->linesize, buffer, AV_PIX_FMT_YUV420P, is->pVideoCodecContext->width,
-		is->pVideoCodecContext->height, 1);
+	ret = av_image_fill_arrays(is->pFrameYUV->data, is->pFrameYUV->linesize, buffer, AV_PIX_FMT_YUV420P, 
+		is->pVideoCodecContext->width, is->pVideoCodecContext->height, 1);
 	if (ret < 0)
 	{
 		cout << "av_image_fill_arrays() failed " << ret << endl;
@@ -328,7 +335,7 @@ static int OpenVideoPlaying(void* arg)
 	is->sdlVideo.rect.w = is->pVideoCodecContext->width;
 	is->sdlVideo.rect.h = is->pVideoCodecContext->height;
 
-	// 1.创建SDL窗口
+	// 1.创建SDL窗口 (窗口名字, 窗口起始点x, 窗口起始点y, 窗口宽度w, 窗口高度h, 
 	is->sdlVideo.window = SDL_CreateWindow("simple player", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED,
 		is->sdlVideo.rect.w, is->sdlVideo.rect.h, SDL_WINDOW_OPENGL);
 	if (is->sdlVideo.window == NULL)
@@ -337,7 +344,7 @@ static int OpenVideoPlaying(void* arg)
 		return -1;
 	}
 
-	// 2.创建SDL_Renderer
+	// 2.创建SDL_Renderer (渲染图片的窗口, 选择显卡, 软编)
 	is->sdlVideo.renderer = SDL_CreateRenderer(is->sdlVideo.window, -1, 0);
 	if (is->sdlVideo.renderer == NULL)
 	{
@@ -345,7 +352,7 @@ static int OpenVideoPlaying(void* arg)
 		return -1;
 	}
 
-	// 3.创建 SDL_Texture
+	// 3.创建 SDL_Texture (渲染器上下文, 像素格式, 纹理权利(是否经常修改), 纹理宽, 纹理高)
 	is->sdlVideo.texture = SDL_CreateTexture(is->sdlVideo.renderer,
 		SDL_PIXELFORMAT_IYUV, SDL_TEXTUREACCESS_STREAMING, is->sdlVideo.rect.w, is->sdlVideo.rect.h);
 	if (is->sdlVideo.texture == NULL)
@@ -353,15 +360,21 @@ static int OpenVideoPlaying(void* arg)
 		cout << "SDL_CreateTexture() failed " << SDL_GetError() << endl;
 		return -1;
 	}
+	// 创建视频渲染线程
 	is->videoPlayThreadID = SDL_CreateThread(VideoPlayingThread, "video playing thread", is);
 	return 0;
 }
 
+// 打开视频流
 static int OpenVideoStream(PlayerStation* is)
 {
+	// 编解码参数
 	AVCodecParameters* pCodecPar = NULL;
+	// 编解码器
 	AVCodec* pCodec = NULL;
+	// 编解码器上下文
 	AVCodecContext* pCodecContext = NULL;
+	// 视频流
 	AVStream* pStream = is->pVideoStream;
 	int ret;
 	// 1.为视频流构建解码器 AVCodecContext
@@ -400,15 +413,20 @@ static int OpenVideoStream(PlayerStation* is)
 		cout << "avcodec_open2() failed " << ret << endl;
 		return -1;
 	}
+	// 设置视频编码器上下文
 	is->pVideoCodecContext = pCodecContext;
+
 	// 2.创建视频解码线程
 	is->videoDecodeThreadID = SDL_CreateThread(VideoDecodeThread, "video decode thread", is);
 	return 0;
 }
 
+// 打开图像播放
 int OpenVideo(PlayerStation* is)
 {
+	// 设置视频编码器上下文并创建视频解码器线程
 	OpenVideoStream(is);
+	// 初始化格式转化上下文, 初始化SDL 图像渲染功能, 创建视频渲染线程
 	OpenVideoPlaying(is);
 	return 0;
 }

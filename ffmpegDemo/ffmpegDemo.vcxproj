@@ -156,6 +156,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="audio.h" />
+    <ClInclude Include="config.h" />
     <ClInclude Include="demux.h" />
     <ClInclude Include="frame.h" />
     <ClInclude Include="MySDL.h" />

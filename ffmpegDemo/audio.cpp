@@ -102,6 +102,7 @@ END:
 	return ret;
 }
 
+// 打开音频流  
 int OpenAudioStream(PlayerStation* is)
 {
 	AVCodecContext* pCodecContext = NULL;
@@ -144,8 +145,9 @@ int OpenAudioStream(PlayerStation* is)
 		av_log(NULL, AV_LOG_ERROR, "avcodecc_open2() failed %d\n", ret);
 		return -1;
 	}
-
+	// 时间基准
 	pCodecContext->pkt_timebase = is->pAudioStream->time_base;
+	// 设置音频解码上下文
 	is->pAudioCodecContext = pCodecContext;
 
 	// 2.创建音频解码线程
@@ -262,29 +264,38 @@ static int AudioResample(PlayerStation* is, int64_t audioCallbackTime)
 	return resampledDataSize;
 }
 
+// 打开音频渲染
 static int OpenAudioPlaying(void* arg)
 {
 	PlayerStation* is = static_cast<PlayerStation*>(arg);
+	// 文件中保存音频的格式
 	SDL_AudioSpec wantedSpec;
+	// 音频播放设备需要的格式
 	SDL_AudioSpec actualSpec;
 	// 2. 打开音频设备并创建音频处理线程
 	// 2.1 打开音频设备，获取 SDL 设备支持的音频参数 actualSpec
-	wantedSpec.freq = is->pAudioCodecContext->sample_rate; // 采样率
-	wantedSpec.format = AUDIO_S16SYS;
+	wantedSpec.freq = is->pAudioCodecContext->sample_rate; // 采样率( 每秒采样的样本数)
+	wantedSpec.format = AUDIO_S16SYS;  // 样本格式  Signed 16-bit samples
 	wantedSpec.channels = is->pAudioCodecContext->channels; // 声音通道数
 	wantedSpec.silence = 0; // 静音值
-	wantedSpec.samples = FFMAX(SDL_AUDIO_MIN_BUFFER_SIZE, 2 << av_log2(wantedSpec.freq / SDL_AUDIO_MAX_CALLBACKS_PER_SEC));
-	wantedSpec.callback = SDLAudioCallback;
-	wantedSpec.userdata = is;		
+	wantedSpec.samples = FFMAX(SDL_AUDIO_MIN_BUFFER_SIZE, 2 << av_log2(wantedSpec.freq / SDL_AUDIO_MAX_CALLBACKS_PER_SEC)); // 每个通道的样本数
+	wantedSpec.callback = SDLAudioCallback; // 回调函数
+	wantedSpec.userdata = is; // 用户数据
 	if (!(audioDevice = SDL_OpenAudioDevice(NULL, 0, &wantedSpec, &actualSpec, SDL_AUDIO_ALLOW_FREQUENCY_CHANGE | SDL_AUDIO_ALLOW_CHANNELS_CHANGE)))
 	{
 		av_log(NULL, AV_LOG_ERROR, "SDL_OpenAudio() failed: %s\n", SDL_GetError());
 		return -1;
 	}
 
+	if (actualSpec.format != AUDIO_S16SYS)
+	{
+		av_log(NULL, AV_LOG_ERROR, "Audio Device not support S16SYS\n");
+		return -1;
+	}
 	// 2.2 根据 SDL 音频参数构建音频重采样参数
 	is->audioParamTarget.fmt = AV_SAMPLE_FMT_S16;
 	is->audioParamTarget.freq = actualSpec.freq;
+	// av_get_channel_layout_nb_channels  av_get_default_channel_layout
 	is->audioParamTarget.channelLayout = av_get_default_channel_layout(actualSpec.channels);
 	is->audioParamTarget.channels = actualSpec.channels;
 	is->audioParamTarget.frameSize = av_samples_get_buffer_size(NULL, actualSpec.channels, 1, is->audioParamTarget.fmt, 1);
@@ -303,6 +314,7 @@ static int OpenAudioPlaying(void* arg)
 	SDL_PauseAudioDevice(audioDevice, 0);
 }
 
+// 音频回调函数
 static void SDLAudioCallback(void* opaque, Uint8* stream, int len)
 {
 	PlayerStation* is = static_cast<PlayerStation*>(opaque);
@@ -351,9 +363,12 @@ static void SDLAudioCallback(void* opaque, Uint8* stream, int len)
 	}
 }
 
+// 打开音频渲染
 int OpenAudio(PlayerStation* is)
 {
+	// 设置音频解码上下文(设置时间基), 创建音频解码线程
 	OpenAudioStream(is);
+	// 打开音频播放设备，并设置回调函数
 	OpenAudioPlaying(is);
 	return 0;
 }

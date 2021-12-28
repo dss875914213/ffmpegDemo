@@ -5,26 +5,28 @@ void FrameQueueUnrefItem(Frame* vp)
 	av_frame_unref(vp->frame);
 }
 
+// 未编码数据队列初始化
 int FrameQueueInit(FrameQueue* frameQueue, PacketQueue* packetQueue, int maxSize, int keepLast)
 {
 	memset(frameQueue, 0, sizeof(FrameQueue));
+	// 创建互斥量
 	if (!(frameQueue->mutex = SDL_CreateMutex()))
 	{
 		av_log(NULL, AV_LOG_FATAL, "SDL_CreateMutex():%s\n", SDL_GetError());
 		return AVERROR(ENOMEM);
 	}
-
+	// 条件变量
 	if (!(frameQueue->cond = SDL_CreateCond()))
 	{
 		av_log(NULL, AV_LOG_FATAL, "SDL_CreateCond(): %s\n", SDL_GetError());
 		return AVERROR(ENOMEM);
 	}
-	frameQueue->packetQueue = packetQueue;
-	frameQueue->maxSize = FFMIN(maxSize, FRAME_QUEUE_SIZE);
-	frameQueue->keepLast = !!keepLast;
+	frameQueue->packetQueue = packetQueue;  // 设置未编码队列对应的编码队列
+	frameQueue->maxSize = FFMIN(maxSize, FRAME_QUEUE_SIZE); // 不同类型数据，设置不同的 size 大小
+	frameQueue->keepLast = !!keepLast; // 保存上一帧数据
 	for (int i = 0; i < frameQueue->maxSize; i++)
 	{
-		if (!(frameQueue->queue[i].frame = av_frame_alloc()))
+		if (!(frameQueue->queue[i].frame = av_frame_alloc())) // 为该类型数据的 AVFrame 分配空间
 			return AVERROR(ENOMEM);
 	}
 	return 0;

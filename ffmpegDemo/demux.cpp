@@ -3,20 +3,23 @@
 #include <iostream>
 using namespace std;
 
+
+// 解码中断回调函数, 使用停止请求标志
 static int DecodeInterruptCallback(void* context)
 {
 	PlayerStation* is = static_cast<PlayerStation*>(context);
 	return is->abortRequest;
 }
 
+// 多路复用器初始化
 static int DemuexInit(PlayerStation* is)
 {
-	AVFormatContext* pFormatContext = NULL;
+	// 分配流媒体解析上下文
+	AVFormatContext* pFormatContext = avformat_alloc_context();
 	int error;
 	int ret;
-	int audioIndex;
-	int videoIndex;
-	pFormatContext = avformat_alloc_context();
+	// 音视频分别对应的流索引
+	int audioIndex, videoIndex;
 	if (!pFormatContext)
 	{
 		cout << "Could not allocate context." << endl;
@@ -40,7 +43,7 @@ static int DemuexInit(PlayerStation* is)
 	is->pFormatContext = pFormatContext;
 
 	// 1.2 搜索流信息：读取一段视频文件数据，尝试解码，将取到的流信息填入 pFormatContext->streams
-	// ic->streams 是一个指针数组，数组大小是 pFormatContext->nb_streams
+	// pFormatContext->streams 是一个指针数组，数组大小是 pFormatContext->nb_streams
 	error = avformat_find_stream_info(pFormatContext, NULL);
 	if (error < 0)
 	{
@@ -52,6 +55,7 @@ static int DemuexInit(PlayerStation* is)
 	// 2. 查找第一个音频流/ 视频流
 	audioIndex = -1;
 	videoIndex = -1;
+	// nb_streams 文件中流媒体个数
 	for (int i = 0; i < pFormatContext->nb_streams; i++)
 	{
 		if ((pFormatContext->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_AUDIO) && (audioIndex == -1))
@@ -73,12 +77,17 @@ static int DemuexInit(PlayerStation* is)
 		ret = -1;
 	FAIL:
 		if (pFormatContext != NULL)
+			// 关闭流媒体上下文
 			avformat_close_input(&pFormatContext);
 		return ret;
 	}
+	// 设置音频流索引
 	is->audioIndex = audioIndex;
+	// 设置视频流索引
 	is->videoIndex = videoIndex;
+	// 设置音频流
 	is->pAudioStream = pFormatContext->streams[audioIndex];
+	// 设置视频流
 	is->pVideoStream = pFormatContext->streams[videoIndex];
 	return 0;
 }
@@ -158,14 +167,17 @@ static int DemuxThread(void* arg)
 	return 0;
 }
 
+// 打开多路复用器
 int OpenDemux(PlayerStation* is)
 {
+	// 多路复用器初始化
 	if (DemuexInit(is) != 0)
 	{
 		cout << "demux_init() failed" << endl;
 		return -1;
 	}
 
+	// 创建读文件线程 (线程函数, 线程名字, 传给线程的参数)
 	is->readThreadID = SDL_CreateThread(DemuxThread, "demuxThread", is);
 	if (is->readThreadID == NULL)
 	{
