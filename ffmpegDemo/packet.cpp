@@ -69,35 +69,47 @@ int PacketQueueGet(PacketQueue* packetQueue, AVPacket* packet, int block)
 	AVPacketList* pPacketNode;
 	int ret = 0;
 	SDL_LockMutex(packetQueue->mutex);
+	av_log(NULL, AV_LOG_INFO, "start PacketQueueGet--------------------------------\n");
 	while (1)
 	{
+		// 停止请求
 		if (packetQueue->abortRequest)
 			break;
 		pPacketNode = packetQueue->firstPacket;
+		// 如果有数据，则取数据
 		if (pPacketNode)
 		{
 			packetQueue->firstPacket = pPacketNode->next;
+			// 如果数据取完了，则将 lastPacket 也设为 NULL  
 			if (!packetQueue->firstPacket)
 				packetQueue->lastPacket = NULL;
 			packetQueue->numberPackets--;
 			packetQueue->size -= pPacketNode->pkt.size;
 			*packet = pPacketNode->pkt;
+			// 只释放 pPacketNode 本身，不释放里面的 packet
 			av_free(pPacketNode);
 			ret = 1;
 			break;
 		}
+		// 如果没数据，且不阻塞，则停止
 		else if (!block)
 		{
 			ret = 0;
 			break;
 		}
+		// 没数据，阻塞，则等待 mutex 线程，将数据放入未解码队列中
 		else
+		{
+			av_log(NULL, AV_LOG_INFO, "SDL_CondWait PacketQueueGet--------------------------------\n");
 			SDL_CondWait(packetQueue->cond, packetQueue->mutex);
+		}
 	}
 	SDL_UnlockMutex(packetQueue->mutex);
+	av_log(NULL, AV_LOG_INFO, "End PacketQueueGet--------------------------------\n");
 	return ret;
 }
 
+// 向编码队列中添加空包
 int PacketQueuePutNullPacket(PacketQueue* packetQueue, int streamIndex)
 {
 	AVPacket pkt1, * pkt = &pkt1;

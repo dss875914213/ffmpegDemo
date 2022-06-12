@@ -4,7 +4,7 @@
 
 SDL_AudioDeviceID audioDevice;
 
-static void SDLAudioCallback(void* opaque, Uint8* stream, int len);
+// 音频解码
 static int AudioDecodeFrame(AVCodecContext* pCodecContext, PacketQueue* pPacketQueue, AVFrame* frame)
 {
 	int ret;
@@ -20,6 +20,7 @@ static int AudioDecodeFrame(AVCodecContext* pCodecContext, PacketQueue* pPacketQ
 				// 时基变换，从 d->avcontex->packetTimebase 时基转换到 1/frame->sampleRate 时基
 				AVRational timebase = AVRational{ 1, frame->sample_rate };
 				if (frame->pts != AV_NOPTS_VALUE)
+					// pts 进行转换
 					frame->pts = av_rescale_q(frame->pts, pCodecContext->pkt_timebase, timebase);
 				else
 					av_log(NULL, AV_LOG_WARNING, "frame->pts no\n");
@@ -34,7 +35,6 @@ static int AudioDecodeFrame(AVCodecContext* pCodecContext, PacketQueue* pPacketQ
 			else if (ret == AVERROR(EAGAIN))
 			{
 				av_log(NULL, AV_LOG_INFO, "audio avcodec_receive_frame(): input is not accepted in the current state\n");
-
 				break;
 			}
 			else
@@ -79,6 +79,7 @@ static int AudioDecodeThread(void* arg)
 	{
 		if (is->abortRequest)
 			break;
+		// 解码
 		gotFrame = AudioDecodeFrame(is->pAudioCodecContext, &is->audioPacketQueue, pFrame);
 		if (gotFrame < 0)
 			goto END;
@@ -87,6 +88,7 @@ static int AudioDecodeThread(void* arg)
 			timebase = AVRational{ 1, pFrame->sample_rate };
 			if (!(audioFrame = FrameQueuePeekWritable(&is->audioFrameQueue)))
 				goto END;
+			// TODO 为什么要先除以 timebase 再乘以 timebase
 			audioFrame->pts = (pFrame->pts == AV_NOPTS_VALUE) ? NAN : pFrame->pts * av_q2d(timebase);
 			audioFrame->pos = pFrame->pkt_pos;
 			// 当前帧包含的（单个声道）采样数/采样率就是当前帧的播放时长
@@ -155,26 +157,27 @@ int OpenAudioStream(PlayerStation* is)
 	return 0;
 }
 
+// 音频重采样
 static int AudioResample(PlayerStation* is, int64_t audioCallbackTime)
 {
 	int dataSize, resampledDataSize;
 	int64_t decodeChannelLayout;
-	av_unused double audioClock;
 	int wantedNumberSamples;
 	Frame* audioFrame;
 
-#if defined(_WIN32)
+	// 队列中没有帧则等待
 	while (FrameQueueNumberRemaining(&is->audioFrameQueue) == 0)
 	{
+		// 等待时间太长，则退出
 		if ((av_gettime_relative() - audioCallbackTime) > 1000000LL * is->audioHardwareBufferSize / is->audioParamTarget.bytesPerSec / 2)
 			return -1;
 		av_usleep(1000);
 	}
-#endif
 
 	// 若队列头部可读，则由 audioFrame 指向可读帧
 	if (!(audioFrame = FrameQueuePeekReadable(&is->audioFrameQueue)))
 		return -1;
+	// 删除上一帧
 	FrameQueueNext(&is->audioFrameQueue);
 
 	// 根据 frame 中指向的音频参数获取缓冲区大小
@@ -193,6 +196,7 @@ static int AudioResample(PlayerStation* is, int64_t audioCallbackTime)
 		audioFrame->frame->sample_rate != is->audioParamSource.freq)
 	{
 		swr_free(&is->audioSwrContext);
+		// 设置重采样参数
 		is->audioSwrContext = swr_alloc_set_opts(NULL, is->audioParamTarget.channelLayout,
 			is->audioParamTarget.fmt, is->audioParamTarget.freq,
 			decodeChannelLayout, static_cast<AVSampleFormat>(audioFrame->frame->format),
@@ -248,19 +252,11 @@ static int AudioResample(PlayerStation* is, int64_t audioCallbackTime)
 		resampledDataSize = dataSize;
 	}
 
-	audioClock = is->audioClock;
 	if (!isnan(audioFrame->pts))
 		is->audioClock = audioFrame->pts + static_cast<double>(audioFrame->frame->nb_samples) / audioFrame->frame->sample_rate;
 	else
 		is->audioClock = NAN;
 	is->audioClockSerial = audioFrame->serial;
-#ifdef DEBUG
-	{
-		static double lastClock;
-		av_log(NULL, AV_LOG_INFO, "audio: delay=%0.3f clock=%0.3f clock=%0.3f\n", is->audioClock - lastClock, is->audioClock, audioClock);
-		lastClock = is->audioClock;
-	}
-#endif
 	return resampledDataSize;
 }
 
@@ -293,12 +289,14 @@ static int OpenAudioPlaying(void* arg)
 		return -1;
 	}
 	// 2.2 根据 SDL 音频参数构建音频重采样参数
-	is->audioParamTarget.fmt = AV_SAMPLE_FMT_S16;
-	is->audioParamTarget.freq = actualSpec.freq;
+	is->audioParamTarget.fmt = AV_SAMPLE_FMT_S16; // 目标音频格式
+	is->audioParamTarget.freq = actualSpec.freq; // 目标音频频率
 	// av_get_channel_layout_nb_channels  av_get_default_channel_layout
-	is->audioParamTarget.channelLayout = av_get_default_channel_layout(actualSpec.channels);
-	is->audioParamTarget.channels = actualSpec.channels;
+	is->audioParamTarget.channelLayout = av_get_default_channel_layout(actualSpec.channels); // 目标音频布局
+	is->audioParamTarget.channels = actualSpec.channels; // 目标音频通道数
+	// 目标音频帧大小(channels*fmt(对应字节数))
 	is->audioParamTarget.frameSize = av_samples_get_buffer_size(NULL, actualSpec.channels, 1, is->audioParamTarget.fmt, 1);
+	// 每秒的字节数
 	is->audioParamTarget.bytesPerSec = av_samples_get_buffer_size(NULL, actualSpec.channels, actualSpec.freq, is->audioParamTarget.fmt, 1);
 	if (is->audioParamTarget.bytesPerSec <= 0 || is->audioParamTarget.frameSize <= 0)
 	{
@@ -306,6 +304,7 @@ static int OpenAudioPlaying(void* arg)
 		return -1;
 	}
 	is->audioParamSource = is->audioParamTarget;
+	// 每帧的字节数
 	is->audioHardwareBufferSize = actualSpec.size;
 	is->audioFrameSize = 0;
 	is->audioCopyIndex = 0;
@@ -319,8 +318,15 @@ static void SDLAudioCallback(void* opaque, Uint8* stream, int len)
 {
 	PlayerStation* is = static_cast<PlayerStation*>(opaque);
 	int audioSize, len1;
+	// 回调开始的时间
 	int64_t audioCallbackTime = av_gettime_relative();
 
+	// TODO 音频暂停也播放声音
+	if (is->paused)
+	{
+		memset(stream, 0, len);
+		return;
+	}
 	while (len > 0)
 	{
 		if (is->audioCopyIndex >= static_cast<int>(is->audioFrameSize))

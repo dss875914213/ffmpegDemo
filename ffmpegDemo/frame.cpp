@@ -1,5 +1,6 @@
 #include "frame.h"
 
+// 释放对应 frame
 void FrameQueueUnrefItem(Frame* vp)
 {
 	av_frame_unref(vp->frame);
@@ -52,11 +53,13 @@ void FrameQueueSignal(FrameQueue* frameQueue)
 	SDL_UnlockMutex(frameQueue->mutex);
 }
 
+// 获取当前帧
 Frame* FrameQueuePeek(FrameQueue* frameQueue)
 {
 	return &frameQueue->queue[(frameQueue->rindex + frameQueue->rindexShown) % frameQueue->maxSize];
 }
 
+// 下一帧
 Frame* FrameQueuePeekNext(FrameQueue* frameQueue)
 {
 	return &frameQueue->queue[(frameQueue->rindex + frameQueue->rindexShown + 1) % frameQueue->maxSize];
@@ -75,6 +78,7 @@ Frame* FrameQueuePeekWritable(FrameQueue* frameQueue)
 	while (frameQueue->size >= frameQueue->maxSize &&
 		!frameQueue->packetQueue->abortRequest)
 	{
+		// TODO 为什么不直接写等待呢，为什么要加互斥量
 		SDL_CondWait(frameQueue->cond, frameQueue->mutex);
 	}
 	SDL_UnlockMutex(frameQueue->mutex);
@@ -104,7 +108,9 @@ void FrameQueuePush(FrameQueue* frameQueue)
 	if (++frameQueue->windex == frameQueue->maxSize)
 		frameQueue->windex = 0;
 	SDL_LockMutex(frameQueue->mutex);
+	// 队列帧数加1
 	frameQueue->size++;
+	// 发送信号量
 	SDL_CondSignal(frameQueue->cond);
 	SDL_UnlockMutex(frameQueue->mutex);
 }
@@ -112,13 +118,16 @@ void FrameQueuePush(FrameQueue* frameQueue)
 // 读指针指向的帧已显示，删除此帧，注意不读取直接删除。读指针加 1
 void FrameQueueNext(FrameQueue* frameQueue)
 {
+	// 用于第一次删帧时，不删保留上一帧，用与对比
 	if (frameQueue->keepLast && !frameQueue->rindexShown)
 	{
 		frameQueue->rindexShown = 1;
 		return;
 	}
 
+	// 释放当前读指针对应的 frame
 	FrameQueueUnrefItem(&frameQueue->queue[frameQueue->rindex]);
+	// rindex + 1
 	if (++frameQueue->rindex == frameQueue->maxSize)
 		frameQueue->rindex = 0;
 	SDL_LockMutex(frameQueue->mutex);
@@ -130,6 +139,7 @@ void FrameQueueNext(FrameQueue* frameQueue)
 // frameQueue 中未显示的帧数
 int FrameQueueNumberRemaining(FrameQueue* frameQueue)
 {
+	// 当前显示的帧，还未从队列中删去
 	return frameQueue->size - frameQueue->rindexShown;
 }
 

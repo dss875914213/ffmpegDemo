@@ -111,6 +111,7 @@ static int DemuxThread(void* arg)
 	AVFormatContext* pFormatContext = is->pFormatContext;
 	int ret;
 	AVPacket pkt1, * pkt = &pkt1;
+	// 该互斥量作用不大，没看到用处
 	SDL_mutex* waitMutex = SDL_CreateMutex();
 	cout << "demux_thread running..." << endl;
 
@@ -119,11 +120,13 @@ static int DemuxThread(void* arg)
 	{
 		if (is->abortRequest)
 			break;
+		// 如果未解码队列中数据足够多，则循环等待
 		if (is->audioPacketQueue.size + is->videoPacketQueue.size > MAX_QUEUE_SIZE ||
 			(StreamHasEnoughPackets(is->pAudioStream, is->audioIndex, &is->audioPacketQueue) &&
 				StreamHasEnoughPackets(is->pVideoStream, is->videoIndex, &is->videoPacketQueue)))
 		{
 			SDL_LockMutex(waitMutex);
+			// TODO 读线程时，应该释放该变量
 			SDL_CondWaitTimeout(is->continueReadThread, waitMutex, 10);
 			SDL_UnlockMutex(waitMutex);
 			continue;
@@ -135,6 +138,8 @@ static int DemuxThread(void* arg)
 		{
 			if (ret == AVERROR_EOF)
 			{
+				// TODO 送一次空帧就好了，如果音视频都发送完毕，则退出该线程
+
 				// 输入文件已读完，则往 packet 队列中发送 NULL packet, 以冲洗 flush 解码器,否则解码器中缓存的帧取不出来
 				if (is->videoIndex >= 0)
 					PacketQueuePutNullPacket(&is->videoPacketQueue, is->videoIndex);
@@ -153,8 +158,10 @@ static int DemuxThread(void* arg)
 		else if (pkt->stream_index == is->videoIndex)
 			PacketQueuePut(&is->videoPacketQueue, pkt);
 		else
+			// 重置 pkt 里面的数据，并将 pkt data 空间释放
 			av_packet_unref(pkt);
 	}
+	// 只是退出该线程，不关闭程序，需要渲染完成才退出
 	ret = 0;
 	if (ret != 0)
 	{

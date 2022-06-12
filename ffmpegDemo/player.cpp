@@ -17,7 +17,10 @@ double GetClock(PlayClock* playClock)
 	else
 	{
 		double time = av_gettime_relative() / 1000000.0;
-		double ret = playClock->ptsDrift + time; // 展开得：c->pts + (time-c->last_updated)
+
+		// 展开得：c->pts + (time-c->last_updated)
+		// pts + 该帧渲染的时间
+		double ret = playClock->ptsDrift + time; 
 		return ret;
 	}
 }
@@ -175,7 +178,7 @@ static PlayerStation* PlayerInit(const char* pInputFile)
 	PacketQueuePut(&is->videoPacketQueue, &flushPacket);
 	PacketQueuePut(&is->audioPacketQueue, &flushPacket);
 
-	// 
+	// 创建读线程信号量
 	if (!(is->continueReadThread = SDL_CreateCond()))
 	{
 		av_log(NULL, AV_LOG_FATAL, "SDL_CreateCond(): %s\n", SDL_GetError());
@@ -205,10 +208,10 @@ static PlayerStation* PlayerInit(const char* pInputFile)
 // 播放器反初始化
 static int PlayerDeinit(PlayerStation* is)
 {
+	// TODO 播放完之后，按 ESC 不能退出程序
 	is->abortRequest = 1;
 	// 停止音频回调函数
 	SDL_PauseAudioDevice(audioDevice, 1);
-	SDL_WaitThread(is->readThreadID, NULL);
 	FrameQueueSignal(&is->videoFrameQueue);
 	FrameQueueSignal(&is->audioFrameQueue);
 	PacketQueueAbort(&is->videoPacketQueue);
@@ -217,6 +220,8 @@ static int PlayerDeinit(PlayerStation* is)
 	SDL_WaitThread(is->videoDecodeThreadID, NULL);
 	SDL_WaitThread(is->videoPlayThreadID, NULL);
 	SDL_WaitThread(is->audioDecodeThreadID, NULL);
+	SDL_WaitThread(is->readThreadID, NULL);
+
 
 	avformat_close_input(&is->pFormatContext);
 	PacketQueueDestroy(&is->videoPacketQueue);
