@@ -58,7 +58,7 @@ int PlayerRunning(const char* pInputFile)
 		DoExit(is);
 	}
 
-	// 打开多路复用器
+	// 打开多路复用器，并创建线程用于解封装
 	OpenDemux(is);
 	// 打开图像渲染
 	OpenVideo(is);
@@ -153,9 +153,9 @@ static void DoExit(PlayerStation* is)
 //播放器初始化
 static PlayerStation* PlayerInit(const char* pInputFile)
 {
-	PlayerStation* is;  // 播放器状态上下文
-	is = static_cast<PlayerStation*>(av_mallocz(sizeof(PlayerStation)));  // av_malloc zero 分配内存，并将该块内存置为0
-	if (!is)
+	 // 播放器状态上下文
+	 PlayerStation* is = static_cast<PlayerStation*>(av_mallocz(sizeof(PlayerStation)));  // av_malloc zero 分配内存，并将该块内存置为0
+	if (is == NULL)
 	{
 		cout << "[ERROR] Failed to av_mallocz" << endl;
 		return NULL;
@@ -163,18 +163,18 @@ static PlayerStation* PlayerInit(const char* pInputFile)
 	is->filename = av_strdup(pInputFile); // string duplicate 拷贝字符串
 	if (is->filename == NULL)
 		goto FAIL;
-	// 初始化音视频未编码队列
+	// 解压缩数据队列初始化
 	if (FrameQueueInit(&is->videoFrameQueue, &is->videoPacketQueue, VIDEO_PICTURE_QUEUE_SIZE, 1) < 0 ||
 		FrameQueueInit(&is->audioFrameQueue, &is->audioPacketQueue, SAMPLE_QUEUE_SIZE, 1) < 0)
 		goto FAIL;
 
-	// 初始化音视频编码队列
+	// 未解压缩数据队列初始化
 	if (PacketQueueInit(&is->videoPacketQueue) < 0 || PacketQueueInit(&is->audioPacketQueue) < 0)
 		goto FAIL;
 
 	AVPacket flushPacket;
 	flushPacket.data = NULL;
-	// 将刷新数据放入未解码队列中
+	// 将刷新数据放入未解压缩数据队列中
 	PacketQueuePut(&is->videoPacketQueue, &flushPacket);
 	PacketQueuePut(&is->audioPacketQueue, &flushPacket);
 

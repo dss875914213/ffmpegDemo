@@ -6,7 +6,7 @@ void FrameQueueUnrefItem(Frame* vp)
 	av_frame_unref(vp->frame);
 }
 
-// 未编码数据队列初始化
+// 解压缩数据队列初始化
 int FrameQueueInit(FrameQueue* frameQueue, PacketQueue* packetQueue, int maxSize, int keepLast)
 {
 	memset(frameQueue, 0, sizeof(FrameQueue));
@@ -24,7 +24,7 @@ int FrameQueueInit(FrameQueue* frameQueue, PacketQueue* packetQueue, int maxSize
 	}
 	frameQueue->packetQueue = packetQueue;  // 设置未编码队列对应的编码队列
 	frameQueue->maxSize = FFMIN(maxSize, FRAME_QUEUE_SIZE); // 不同类型数据，设置不同的 size 大小
-	frameQueue->keepLast = !!keepLast; // 保存上一帧数据
+	frameQueue->keepLast = !!keepLast; // 是否保存上一帧数据
 	for (int i = 0; i < frameQueue->maxSize; i++)
 	{
 		if (!(frameQueue->queue[i].frame = av_frame_alloc())) // 为该类型数据的 AVFrame 分配空间
@@ -78,7 +78,7 @@ Frame* FrameQueuePeekWritable(FrameQueue* frameQueue)
 	while (frameQueue->size >= frameQueue->maxSize &&
 		!frameQueue->packetQueue->abortRequest)
 	{
-		// TODO 为什么不直接写等待呢，为什么要加互斥量
+		// TODO 为什么不直接写等待呢，为什么要加互斥量； 互斥量把锁放开，且其他地方可以提前发送信号，不用等待
 		SDL_CondWait(frameQueue->cond, frameQueue->mutex);
 	}
 	SDL_UnlockMutex(frameQueue->mutex);

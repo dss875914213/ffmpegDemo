@@ -13,6 +13,8 @@ static int AudioDecodeFrame(AVCodecContext* pCodecContext, PacketQueue* pPacketQ
 		AVPacket pkt;
 		while (1)
 		{
+			if (pPacketQueue->abortRequest)
+				return 1;
 			// 3.2 一个音频 packet 含一至多个 frame，每次 avcodec_receive_frame() 返回一个 frame
 			ret = avcodec_receive_frame(pCodecContext, frame);
 			if (ret >= 0)

@@ -28,15 +28,14 @@ int PacketQueueInit(PacketQueue* packetQueue)
 // 写队列尾部， packet 是一包未解码的音频数据
 int PacketQueuePut(PacketQueue* packetQueue, AVPacket* packet)
 {
-	AVPacketList* pktList;
 	if (av_packet_make_refcounted(packet) < 0)
 	{
 		cout << "[packet] is not reference counted" << endl;
 		return -1;
 	}
 	// pktList 分配内存
-	pktList = static_cast<AVPacketList*>(av_malloc(sizeof(AVPacketList)));
-	if (!pktList)
+	AVPacketList* pktList = static_cast<AVPacketList*>(av_malloc(sizeof(AVPacketList)));
+	if (pktList == NULL)
 		return -1;
 
 	// 构建 pktList， 并赋与初值
@@ -52,7 +51,7 @@ int PacketQueuePut(PacketQueue* packetQueue, AVPacket* packet)
 		packetQueue->lastPacket->next = pktList;
 	// 更新队列尾部，为新加入的数据
 	packetQueue->lastPacket = pktList;
-	//未解码帧数 +1
+	// 未解码帧数 +1
 	packetQueue->numberPackets++;
 	// 队列长度 + 新加入数据长度
 	packetQueue->size += pktList->pkt.size;

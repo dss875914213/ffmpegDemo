@@ -8,25 +8,24 @@ using namespace std;
 // 将解码后数据，放入解码后队列
 static int QueuePicture(PlayerStation* is, AVFrame* sourceFrame, double pts, double duration, int64_t pos)
 {
-	Frame* videoFrame;
-
 	// 向队列尾部申请一个可写的帧空间，若无空间则等待
-	if (!(videoFrame = FrameQueuePeekWritable(&is->videoFrameQueue)))
+	Frame* videoFrame = FrameQueuePeekWritable(&is->videoFrameQueue);
+
+	if (videoFrame == NULL)
 		return -1;
 
 	videoFrame->sar = sourceFrame->sample_aspect_ratio; // 视频纵横比
-	videoFrame->uploaded = 0;
 	videoFrame->width = sourceFrame->width; // 使用解码帧的宽度
 	videoFrame->height = sourceFrame->height; // 使用解码帧的高度
 	videoFrame->format = sourceFrame->format; // 使用解码帧的格式
 
 	videoFrame->pts = pts; // 经过时间基转换后的渲染时间戳
-	videoFrame->duration = duration; // 渲染时间   帧率 分母/ 分子
+	videoFrame->duration = duration; // 渲染持续时间   帧率 分母/ 分子
 	videoFrame->pos = pos; // frame 对应 packet 在输入文件中的地址偏移
 
 	// 将 AVFrame 拷入队列相应位置
 	// 改变 data 指针的指向
-	// 将 dst 指向 src ,并将 scr 设为默认值
+	// 将 dst 指向 src ,并将 src 设为默认值
 	av_frame_move_ref(videoFrame->frame, sourceFrame);
 	// 更新队列计数及写索引
 	FrameQueuePush(&is->videoFrameQueue);
@@ -76,7 +75,7 @@ static int VideoDecodeFrame(AVCodecContext* pCodecContext, PacketQueue* pPacketQ
 			}
 			else
 			{
-				// TODO 不清楚是什么意思
+				// 使用各种启发式方法估计的帧时间戳，在流时基中
 				frame->pts = frame->best_effort_timestamp;
 				return 1; // 成功解码得到一个视频帧
 			}
@@ -193,7 +192,7 @@ static double VpDuration(PlayerStation* is, Frame* vp, Frame* nextvp)
 }
 
 // 更新视频渲染时间戳
-static void UpdateVideoPts(PlayerStation* is, double pts, int64_t pos, int serial)
+static void UpdateVideoPts(PlayerStation* is, double pts, int serial)
 {
 	SetClock(&is->videoPlayClock, pts, serial); // 更新 videoClock
 }
@@ -273,7 +272,7 @@ RETRY:
 		is->frameTimer = time;
 	SDL_LockMutex(is->videoFrameQueue.mutex);
 	if (!isnan(vp->pts))
-		UpdateVideoPts(is, vp->pts, vp->pos, vp->serial); // 更新视频时钟：时间戳、时钟时间
+		UpdateVideoPts(is, vp->pts, vp->serial); // 更新视频时钟：时间戳、时钟时间
 	SDL_UnlockMutex(is->videoFrameQueue.mutex);
 
 	// 是否要丢弃未能及时播放的视频帧

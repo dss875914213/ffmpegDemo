@@ -85,14 +85,13 @@ typedef struct
 	AVFrame* frame;		// 解码后数据
 	int serial;
 	double pts;			// 渲染时间
-	double duration;	// 持续时间
+	double duration;	// 渲染持续时间
 	int64_t pos;		// frame 对应 packet 在输入文件中的地址偏移
 	int width;			// 宽度
 	int height;			// 高度
 	int format;			// 格式
 	AVRational sar;		// 样本横纵比 Sample aspect ratio 
-	int uploaded;		// 
-	int flipV;			// 
+	int flipV;			// 垂直镜像
 }Frame;
 
 typedef struct
@@ -100,13 +99,13 @@ typedef struct
 	Frame queue[FRAME_QUEUE_SIZE];	// 解码数据队列
 	int rindex;						// 读索引
 	int windex;						// 写索引
-	int size;						// 总帧数
-	int maxSize;					// 队列中可存储最大帧数
+	int maxSize;					// 队列中可存储解码数据最大帧数
 	int keepLast;					// 是否保存上一帧数据
 	int rindexShown;				// 当前是否有帧在显示
+	int size;						// 总帧数
 	SDL_mutex* mutex;				// 互斥锁
 	SDL_cond* cond;					// 条件变量
-	PacketQueue* packetQueue;		// 对应的 packetQueue
+	PacketQueue* packetQueue;		// 对应的 packetQueue 未解码数据队列
 }FrameQueue;
 
 typedef struct
@@ -123,7 +122,7 @@ typedef struct
 
 	PlayClock audioPlayClock;			// 音频播放时钟
 	PlayClock videoPlayClock;			// 视频播放时钟
-	double frameTimer;					// ？当前序列开始的时间
+	double frameTimer;					// 当前帧开始播放的时间
 
 	PacketQueue audioPacketQueue;		// 音频未解码帧队列
 	PacketQueue videoPacketQueue;		// 视频未解码帧队列
@@ -151,6 +150,8 @@ typedef struct
 	int step;							// 步进
 
 	SDL_cond* continueReadThread;		// 读线程信号量
+
+
 	SDL_Thread* readThreadID;			// demux 解复用线程
 	SDL_Thread* videoPlayThreadID;		// 视频渲染线程
 	SDL_Thread* videoDecodeThreadID;	// 视频解码线程

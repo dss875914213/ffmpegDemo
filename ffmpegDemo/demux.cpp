@@ -105,6 +105,7 @@ static int StreamHasEnoughPackets(AVStream* stream, int streamIndex, PacketQueue
 		queue->numberPackets>MIN_FRAMES && (!queue->duration || av_q2d(stream->time_base) * queue->duration > 1.0);
 }
 
+// 取出数据，并放到压缩编码队列中
 static int DemuxThread(void* arg)
 {
 	PlayerStation* is = static_cast<PlayerStation*>(arg);
