@@ -5,8 +5,6 @@
 
 using namespace std;
 
-int OpenDemux(PlayerStation* is);
-
 class  FFDemux
 {
 public:
@@ -21,6 +19,7 @@ public:
 private:
 	BOOL StreamHasEnoughPackets(AVStream* stream, int streamIndex, PacketQueue* queue);
 	static BOOL DemuxThread(void* mux);
+	static int DecodeInterruptCallback(void* context);
 
 private:
 	std::string			m_fileName;
@@ -35,6 +34,6 @@ private:
 	AVCodecContext*		m_pVideoCodecContext;	// 视频编码器上下文
 	int					m_audioIndex;			// 音频流索引
 	int					m_videoIndex;			// 视频流索引
-	SDL_cond*			m_continueReadThread;		// 读线程信号量
+	SDL_cond*			m_continueReadThread;	// 读线程信号量
 };
 
