@@ -15,18 +15,87 @@ Video::~Video()
 
 }
 
+BOOL Video::Init(PacketQueue* videoPacketQueue, Player* player)
+{
+	m_packetQueue = videoPacketQueue;
+	if (FrameQueueInit(&m_frameQueue, videoPacketQueue, VIDEO_PICTURE_QUEUE_SIZE, 1) < 0)
+		return FALSE;
+	m_player = player;
+	InitClock(&m_videoPlayClock, &m_packetQueue->serial);
+	return TRUE;
+}
+
 BOOL Video::Open()
 {
-	// 设置视频编码器上下文并创建视频解码器线程
-	OpenStream();
-	// 初始化格式转化上下文, 初始化SDL 图像渲染功能, 创建视频渲染线程
-	OpenPlaying();
+	OpenStream();	// 设置视频编码器上下文并创建视频解码器线程
+	OpenPlaying();	// 初始化格式转化上下文, 初始化SDL 图像渲染功能, 创建视频渲染线程
 	return 0;
 }
 
 void Video::Close()
 {
+	FrameQueueSignal(&m_frameQueue);
+	SDL_WaitThread(m_decodeThread, NULL);
+	SDL_WaitThread(m_playThread, NULL);
+	FrameQueueDestroy(&m_frameQueue);
+	sws_freeContext(m_swsContext);
+	if (m_sdlVideo.texture)
+		SDL_DestroyTexture(m_sdlVideo.texture);
+}
 
+void Video::Destroy()
+{
+	if (m_sdlVideo.renderer)
+		SDL_DestroyRenderer(m_sdlVideo.renderer); // 销毁渲染器
+	if (m_sdlVideo.window)
+		SDL_DestroyWindow(m_sdlVideo.window); // 销毁窗口
+}
+
+void Video::TogglePause()
+{
+	// 取消暂停
+	m_frameTimer += av_gettime_relative() / 1000000.0 - m_videoPlayClock.lastUpdated;
+	SetClock(&m_videoPlayClock, GetClock(&m_videoPlayClock), m_videoPlayClock.serial);
+}
+
+double Video::GetClock(PlayClock* playClock)
+{
+	if (*playClock->queueSerial != playClock->serial)
+		return NAN;
+	if (playClock->paused)
+		return playClock->pts;
+	else
+	{
+		double time = av_gettime_relative() / 1000000.0;
+
+		// 展开得：c->pts + (time-c->last_updated)
+		// pts + 该帧渲染的时间
+		double ret = playClock->ptsDrift + time;
+		return ret;
+	}
+}
+
+void Video::SetClockAt(PlayClock* clock, double pts, int serial, double time)
+{
+	clock->pts = pts;	// 设置渲染时间
+	clock->lastUpdated = time;	// 设置上次更新时间
+	clock->ptsDrift = clock->pts - time;	// 当前帧显示时间戳与当前系统时钟时间的差值
+	clock->serial = serial;	// 设置播放序列
+}
+
+void Video::SetClock(PlayClock* clock, double pts, int serial)
+{
+	// time 单位(ns)
+	double time = av_gettime_relative() / 1000000.0; // av_gettime_relative 获取自某个未指定起点以来的当前时间（以微秒为单位）
+	SetClockAt(clock, pts, serial, time);
+}
+
+void Video::InitClock(PlayClock* clock, int* queueSerial)
+{
+	clock->speed = 1.0;					// 设置播放速度
+	clock->paused = 0;					// 设置不暂停
+	clock->queueSerial = queueSerial;	// 设置播放序列
+	SetClock(clock, NAN, -1);
 }
 
 BOOL Video::QueuePicture(AVFrame* sourceFrame, double pts, double duration, int64_t pos)
@@ -144,10 +213,10 @@ BOOL Video::OnDecodeThread()
 	while (1)
 	{
 		// 停止请求
-		if (m_stop)
+		if (m_player->IsStop())
 			break;
 		// 从 packet_queue 中取一个 packet, 解码生成 frame
-		gotPicture = VideoDecodeFrame(m_pCodecContext, &m_packetQueue, pFrame);
+		gotPicture = DecodeFrame(m_pCodecContext, m_packetQueue, pFrame);
 		if (gotPicture < 0)
 			goto EXIT;
 		duration = (frameRate.num && frameRate.den ? av_q2d(AVRational{ frameRate.den, frameRate.num }) : 0);// 当前帧播放时长 帧率 分母/分子
@@ -171,7 +240,7 @@ BOOL Video::OnPlayingThread()
 	while (1)
 	{
 		// 停止请求
-		if (m_stop)
+		if (m_player->IsStop())
 			break;
 		if (remainingTime > 0.0)
 			av_usleep((unsigned)(remainingTime * 1000000.0));
@@ -281,7 +350,7 @@ RETRY:
 	}
 
 	// 暂停处理：不停播放上一帧图像
-	if (m_paused)
+	if (m_player->IsPause())
 		goto DISPLAY;
 	lastDuration = VpDuration(lastvp, vp); // 上一帧理论播放时长：vp->pts - lastvp->pts
 	delay = ComputeTargetDelay(lastDuration); // 根据视频时钟和同步时钟的差值，计算 delay 值
@@ -462,11 +531,12 @@ int Video::OpenStream()
 BOOL Video::DecodeThread(void* arg)
 {
 	Video* is = static_cast<Video*>(arg);
-	is->OnDecodeThread();
+	return is->OnDecodeThread();
 }
 
 BOOL Video::PlayingThread(void* arg)
 {
 	Video* is = static_cast<Video*>(arg);
-	is->OnPlayingThread();
+	return is->OnPlayingThread();
 }
+

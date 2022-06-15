@@ -1,21 +1,41 @@
 #pragma once
 #include "config.h"
 #include <iostream>
+#include <windows.h>
+#include <string>
+#include "demux.h"
+#include "video.h"
+#include "audio.h"
+
+
 using namespace std;
 
-int PlayerRunning(const char* pInputFile);
-double GetClock(PlayClock* clock);
-void SetClockAt(PlayClock* clock, double pts, int serial, double time);
-void SetClock(PlayClock* clock, double pts, int serial);
+class FFDemux;
+class Video;
+class Audio;
+class Player
+{
+public:
+	Player();
+	~Player();
+	int PlayerRunning(const char* pInputFile);
+	BOOL IsStop();
+	BOOL IsPause();
+public:
+	BOOL PlayerInit(string pInputFile);
+	BOOL PlayerDeinit();
+	void DoExit();
+	void StreamTogglePause();
+	void TogglePause();
+private:
+	BOOL	m_stop;
+	BOOL	m_pause;
+	BOOL	m_step;
 
-static PlayerStation* PlayerInit(const char* pInputFile);
-static int PlayerDeinit(PlayerStation* is);
-static void SetClockSpeed(PlayClock* clock, double speed);
-static void InitClock(PlayClock* clock, int* queueSerial);
-static void SyncPlayClockToSlave(PlayClock* playClock, PlayClock* slave);
-static void DoExit(PlayerStation* is);
-static void StreamTogglePause(PlayerStation* is);
-static void TogglePause(PlayerStation* is);
+	FFDemux*	m_demux;
+	Video*		m_video;
+	Audio*		m_audio;
+};
 
 
 

@@ -1,20 +1,23 @@
 #pragma once
 #include <string>
-#include <windows.h>
 #include "player.h"
+#include <windows.h>
 
 using namespace std;
 
+class Player;
 class  FFDemux
 {
 public:
-	FFDemux(string filename);
+	FFDemux();
 	~FFDemux();
-	BOOL Init();
+	BOOL Init(string filename, Player* player);
 	BOOL DemuxDeinit();
 	BOOL Open();
+	BOOL IsStop();
 	BOOL Close();
-	void Stop(BOOL flag);
+	PacketQueue* GetVideoPacketQueue();
+	PacketQueue* GetAudioPacketQueue();
 
 private:
 	BOOL StreamHasEnoughPackets(AVStream* stream, int streamIndex, PacketQueue* queue);
@@ -23,8 +26,9 @@ private:
 
 private:
 	std::string			m_fileName;
+	Player*				m_player;
+
 	SDL_Thread*			m_readThread;
-	BOOL				m_stop;
 	PacketQueue			m_audioPacketQueue;		// 音频未解码帧队列
 	PacketQueue			m_videoPacketQueue;		// 视频未解码帧队列
 	AVFormatContext*	m_pFormatContext;		// 流媒体解析上下文

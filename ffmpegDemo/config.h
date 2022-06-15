@@ -108,52 +108,52 @@ typedef struct
 	PacketQueue* packetQueue;		// 对应的 packetQueue 未解码数据队列
 }FrameQueue;
 
-typedef struct
-{
-	char* filename;						// 文件名
-	AVFormatContext* pFormatContext;	// 流媒体解析上下文
-	AVStream* pAudioStream;				// 音频流
-	AVStream* pVideoStream;				// 视频流
-	AVCodecContext* pAudioCodecContext;	// 音频编码器上下文
-	AVCodecContext* pVideoCodecContext;	// 视频编码器上下文
-	int audioIndex;						// 音频流索引
-	int videoIndex;						// 视频流索引
-	SDLVideo sdlVideo;
-
-	PlayClock audioPlayClock;			// 音频播放时钟
-	PlayClock videoPlayClock;			// 视频播放时钟
-	double frameTimer;					// 当前帧开始播放的时间
-
-	PacketQueue audioPacketQueue;		// 音频未解码帧队列
-	PacketQueue videoPacketQueue;		// 视频未解码帧队列
-	FrameQueue audioFrameQueue;			// 音频解码帧队列
-	FrameQueue videoFrameQueue;			// 视频解码帧队列
-
-	SwsContext* imgConvertContext;		// 视频转换上下文
-	SwrContext* audioSwrContext;		// 音频格式转换上下文
-	AVFrame* pFrameYUV;					// 转换格式后的视频数据
-
-	AudioParam audioParamSource;		// 源音频参数(输入数据的参数)
-	AudioParam audioParamTarget;		// 目标音频参数
-	int audioHardwareBufferSize;		// SDL 音频缓冲区大小（单位字节）
-	uint8_t* pAudioFrame;				// 指向待播放的一帧音频数据，指向的数据将被拷入SDL音频缓冲区
-	uint8_t* pAudioFrameRwr;			// 音频重采样的输出缓冲区
-	unsigned int audioFrameSize;		// 待播放的一帧音频数据大小
-	unsigned int audioFrameRwrSize;		// 申请到的音频缓冲区 pAudioFrameRwr 大小
-	int audioCopyIndex;					// 当前音频帧中已拷入 SDL 音频缓冲区的位置索引
-	int audioWriteBufferSize;			// 当前音频帧中尚未拷入 SDL 音频缓冲区的数据量 audioFrameSize = audioCopyIndex+audioWriteBufferSize
-	double audioClock;					// 音频时钟(当前帧播放结束的时间？)
-	int audioClockSerial;
-
-	int abortRequest;					// 停止请求
-	int paused;							// 暂停
-	int step;							// 步进
-
-	SDL_cond* continueReadThread;		// 读线程信号量
-
-
-	SDL_Thread* readThreadID;			// demux 解复用线程
-	SDL_Thread* videoPlayThreadID;		// 视频渲染线程
-	SDL_Thread* videoDecodeThreadID;	// 视频解码线程
-	SDL_Thread* audioDecodeThreadID;	// 音频解码线程
-}PlayerStation;
+//typedef struct
+//{
+//	char* filename;						// 文件名
+//	AVFormatContext* pFormatContext;	// 流媒体解析上下文
+//	AVStream* pAudioStream;				// 音频流
+//	AVStream* pVideoStream;				// 视频流
+//	AVCodecContext* pAudioCodecContext;	// 音频编码器上下文
+//	AVCodecContext* pVideoCodecContext;	// 视频编码器上下文
+//	int audioIndex;						// 音频流索引
+//	int videoIndex;						// 视频流索引
+//	SDLVideo sdlVideo;
+//
+//	PlayClock audioPlayClock;			// 音频播放时钟
+//	PlayClock videoPlayClock;			// 视频播放时钟
+//	double frameTimer;					// 当前帧开始播放的时间
+//
+//	PacketQueue audioPacketQueue;		// 音频未解码帧队列
+//	PacketQueue videoPacketQueue;		// 视频未解码帧队列
+//	FrameQueue audioFrameQueue;			// 音频解码帧队列
+//	FrameQueue videoFrameQueue;			// 视频解码帧队列
+//
+//	SwsContext* imgConvertContext;		// 视频转换上下文
+//	SwrContext* audioSwrContext;		// 音频格式转换上下文
+//	AVFrame* pFrameYUV;					// 转换格式后的视频数据
+//
+//	AudioParam audioParamSource;		// 源音频参数(输入数据的参数)
+//	AudioParam audioParamTarget;		// 目标音频参数
+//	int audioHardwareBufferSize;		// SDL 音频缓冲区大小（单位字节）
+//	uint8_t* pAudioFrame;				// 指向待播放的一帧音频数据，指向的数据将被拷入SDL音频缓冲区
+//	uint8_t* pAudioFrameRwr;			// 音频重采样的输出缓冲区
+//	unsigned int audioFrameSize;		// 待播放的一帧音频数据大小
+//	unsigned int audioFrameRwrSize;		// 申请到的音频缓冲区 pAudioFrameRwr 大小
+//	int audioCopyIndex;					// 当前音频帧中已拷入 SDL 音频缓冲区的位置索引
+//	int audioWriteBufferSize;			// 当前音频帧中尚未拷入 SDL 音频缓冲区的数据量 audioFrameSize = audioCopyIndex+audioWriteBufferSize
+//	double audioClock;					// 音频时钟(当前帧播放结束的时间？)
+//	int audioClockSerial;
+//
+//	int abortRequest;					// 停止请求
+//	int paused;							// 暂停
+//	int step;							// 步进
+//
+//	SDL_cond* continueReadThread;		// 读线程信号量
+//
+//
+//	SDL_Thread* readThreadID;			// demux 解复用线程
+//	SDL_Thread* videoPlayThreadID;		// 视频渲染线程
+//	SDL_Thread* videoDecodeThreadID;	// 视频解码线程
+//	SDL_Thread* audioDecodeThreadID;	// 音频解码线程
+//}PlayerStation;

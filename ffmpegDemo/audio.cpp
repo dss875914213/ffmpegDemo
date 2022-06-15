@@ -7,19 +7,28 @@ Audio::Audio()
 	// -DSS TODO 初始化参数
 }
 
+BOOL Audio::Init(PacketQueue* pPacketQueue, Player* player)
+{
+	if (FrameQueueInit(&m_frameQueue, pPacketQueue, SAMPLE_QUEUE_SIZE, 1) < 0)
+		return FALSE;
+	m_player = player;
+	InitClock(&m_audioPlayClock, &m_packetQueue->serial);
+	return TRUE;
+}
+
 BOOL Audio::Open()
 {
-	// 设置音频解码上下文(设置时间基), 创建音频解码线程
-	OpenAudioStream();
-	// 打开音频播放设备，并设置回调函数
-	OpenAudioPlaying();
+	OpenAudioStream(); // 设置音频解码上下文(设置时间基), 创建音频解码线程
+	OpenAudioPlaying(); // 打开音频播放设备，并设置回调函数
 	return TRUE;
-
 }
 
 void Audio::Close()
 {
-
+	SDL_PauseAudioDevice(m_audioDevice, 1);
+	FrameQueueSignal(&m_frameQueue);
+	SDL_WaitThread(m_decodeThread, NULL);
+	FrameQueueDestroy(&m_frameQueue);
 }
 
 BOOL Audio::OnDecodeThread()
@@ -36,10 +45,10 @@ BOOL Audio::OnDecodeThread()
 
 	while (1)
 	{
-		if (m_stop)
+		if (m_player->IsStop())
 			break;
 		// 解码
-		receive = AudioDecodeFrame(m_pAudioCodecContext, &m_packetQueue, pFrame);
+		receive = AudioDecodeFrame(m_pAudioCodecContext, m_packetQueue, pFrame);
 		if (!receive)
 			goto END;
 
@@ -61,6 +70,83 @@ END:
 	return ret;
 }
 
+void Audio::SetClockAt(PlayClock* clock, double pts, int serial, double time)
+{
+	clock->pts = pts;	// 设置渲染时间
+	clock->lastUpdated = time;	// 设置上次更新时间
+	clock->ptsDrift = clock->pts - time;	// 当前帧显示时间戳与当前系统时钟时间的差值
+	clock->serial = serial;	// 设置播放序列
+}
+
+void Audio::SetClock(PlayClock* clock, double pts, int serial)
+{
+	// time 单位(ns)
+	double time = av_gettime_relative() / 1000000.0; // av_gettime_relative 获取自某个未指定起点以来的当前时间（以微秒为单位）
+	SetClockAt(clock, pts, serial, time);
+}
+
+void Audio::InitClock(PlayClock* clock, int* queueSerial)
+{
+	clock->speed = 1.0;					// 设置播放速度
+	clock->paused = 0;					// 设置不暂停
+	clock->queueSerial = queueSerial;	// 设置播放序列
+	SetClock(clock, NAN, -1);
+}
+
+void Audio::OnSDLAudioCallback(Uint8* stream, int len)
+{
+	int audioSize, len1;
+	// 回调开始的时间
+	int64_t audioCallbackTime = av_gettime_relative();
+
+	// TODO 音频暂停也播放声音
+	if (m_player->IsPause())
+	{
+		memset(stream, 0, len);
+		return;
+	}
+	while (len > 0)
+	{
+		if (m_audioCopyIndex >= static_cast<int>(m_audioFrameSize))
+		{
+			// 1.从音频 frame 队列中取出一个 frame，转换为音频设备支持的格式，返回值是重采样音频帧的大小
+			audioSize = AudioResample(audioCallbackTime);
+			if (audioSize < 0)
+			{
+				m_pAudioFrame = NULL;
+				m_audioFrameSize = SDL_AUDIO_MIN_BUFFER_SIZE / m_audioParamTarget.frameSize * m_audioParamTarget.frameSize;
+			}
+			else
+				m_audioFrameSize = audioSize;
+			m_audioCopyIndex = 0;
+		}
+		// 引入 is->audioCopyIndex 的作用：防止一帧音频数据大小超过 SDL 音频缓冲区大小，这样一帧数据需要经过多次拷贝
+		// 用 is->audioCopyIndex 标识重采样帧中已拷入 SDL 音频缓冲区的数据位置索引， len1 标识本次拷贝的数据量
+		len1 = m_audioFrameSize - m_audioCopyIndex;
+		if (len1 > len)
+			len1 = len;
+		// 2.将转换后的音频数据拷贝到音频缓冲区 stream 中，之后的播放就是音频设备驱动程序工作
+		if (m_pAudioFrame != NULL)
+			memcpy(stream, static_cast<uint8_t*>(m_pAudioFrame) + m_audioCopyIndex, len1);
+		else
+			memset(stream, 0, len1);
+		len -= len1;
+		stream += len1;
+		m_audioCopyIndex += len1;
+	}
+
+	m_audioWriteBufferSize = m_audioFrameSize - m_audioCopyIndex;
+
+	// 3.更新时钟
+	if (!isnan(m_audioClock))
+	{
+		// 更新音频时钟，更新时刻：每次往声卡缓冲区拷入数据后
+		// 前面 audioDecodeFrame 中更新的 is->audioClock 是以音频帧为单位，所以此处第二个参数要减去未拷贝数据量占用的时间
+		SetClockAt(&m_audioPlayClock, m_audioClock - static_cast<double>(2 * m_audioHardwareBufferSize + m_audioWriteBufferSize) /
+			m_audioParamTarget.bytesPerSec, m_audioClockSerial, audioCallbackTime / 1000000.0);
+	}
+}
+
 int Audio::AudioDecodeFrame(AVCodecContext* pCodecContext, PacketQueue* pPacketQueue, AVFrame* frame)
 {
 	int ret;
@@ -69,7 +155,7 @@ int Audio::AudioDecodeFrame(AVCodecContext* pCodecContext, PacketQueue* pPacketQ
 		AVPacket pkt;
 		while (1)
 		{
-			if (m_stop)
+			if (m_player->IsStop())
 				return 1;
 			// 3.2 一个音频 packet 含一至多个 frame，每次 avcodec_receive_frame() 返回一个 frame
 			ret = avcodec_receive_frame(pCodecContext, frame);
@@ -167,7 +253,7 @@ BOOL Audio::OpenAudioStream()
 	m_pAudioCodecContext = pCodecContext;
 
 	// 2.创建音频解码线程
-	m_decodeThread = SDL_CreateThread(AudioDecodeThread, "audio decode thread", this);
+	m_decodeThread = SDL_CreateThread(DecodeThread, "audio decode thread", this);
 	return 0;
 }
 
@@ -327,5 +413,11 @@ BOOL Audio::OpenAudioPlaying()
 BOOL Audio::DecodeThread(void* arg)
 {
 	Audio* is = static_cast<Audio*>(arg);
-	is->OnDecodeThread();
+	return is->OnDecodeThread();
+}
+
+void Audio::SDLAudioCallback(void* opaque, Uint8* stream, int len)
+{
+	Audio* is = static_cast<Audio*>(opaque);
+	return is->OnSDLAudioCallback(stream, len);
 }

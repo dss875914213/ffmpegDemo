@@ -2,11 +2,11 @@
 #include "packet.h"
 #include <iostream>
 #include <functional>
+#include "config.h"
 using namespace std;
 
-FFDemux::FFDemux(string filename)
-	:m_fileName(filename),
-	m_stop(TRUE),
+FFDemux::FFDemux()
+	:m_fileName(""),
 	m_audioIndex(-1),
 	m_videoIndex(-1),
 	m_pFormatContext(NULL),
@@ -24,8 +24,10 @@ FFDemux::~FFDemux()
 
 }
 
-BOOL FFDemux::Init()
+BOOL FFDemux::Init(string filename, Player* player)
 {
+	m_fileName = filename;
+	m_player = player;
 	// 分配流媒体解析上下文
 	AVFormatContext* pFormatContext = avformat_alloc_context();
 	int error;
@@ -94,6 +96,19 @@ BOOL FFDemux::Init()
 	m_pAudioStream = pFormatContext->streams[m_audioIndex];
 	// 设置视频流
 	m_pVideoStream = pFormatContext->streams[m_videoIndex];
+
+	// 未解压缩数据队列初始化
+	if (PacketQueueInit(&m_videoPacketQueue) < 0 || PacketQueueInit(&m_audioPacketQueue) < 0)
+		goto FAIL;
+
+	AVPacket flushPacket;
+	flushPacket.data = NULL;
+	// 将刷新数据放入未解压缩数据队列中
+	PacketQueuePut(&m_videoPacketQueue, &flushPacket);
+	PacketQueuePut(&m_audioPacketQueue, &flushPacket);
+
+	if (!(m_continueReadThread = SDL_CreateCond()))
+		return FALSE;
 	return 0;
 }
 
@@ -104,13 +119,6 @@ BOOL FFDemux::DemuxDeinit()
 
 BOOL FFDemux::Open()
 {
-	// 多路复用器初始化
-	if (!Init())
-	{
-		cout << "demux_init() failed" << endl;
-		return -1;
-	}
-
 	// 创建读文件线程 (线程函数, 线程名字, 传给线程的参数)
 	m_readThread = SDL_CreateThread(FFDemux::DemuxThread, "demuxThread", this);
 	if (m_readThread == NULL)
@@ -121,14 +129,31 @@ BOOL FFDemux::Open()
 	return 0;
 }
 
-BOOL FFDemux::Close()
+BOOL FFDemux::IsStop()
 {
-
+	return m_player->IsStop();
 }
 
-void FFDemux::Stop(BOOL flag)
+BOOL FFDemux::Close()
 {
-	m_stop = flag;
+	PacketQueueAbort(&m_videoPacketQueue);
+	PacketQueueAbort(&m_audioPacketQueue);
+	SDL_WaitThread(m_readThread, NULL);
+	avformat_close_input(&m_pFormatContext);
+	PacketQueueDestroy(&m_videoPacketQueue);
+	PacketQueueDestroy(&m_audioPacketQueue);
+	SDL_DestroyCond(m_continueReadThread);
+	return TRUE;
+}
+
+PacketQueue* FFDemux::GetVideoPacketQueue()
+{
+	return &m_videoPacketQueue;
+}
+
+PacketQueue* FFDemux::GetAudioPacketQueue()
+{
+	return &m_audioPacketQueue;
 }
 
 BOOL FFDemux::StreamHasEnoughPackets(AVStream* stream, int streamIndex, PacketQueue* queue)
@@ -151,7 +176,7 @@ BOOL FFDemux::DemuxThread(void* is)
 	// 4. 解复用处理
 	while (1)
 	{
-		if (demux->m_stop)
+		if (demux->IsStop())
 			break;
 		// 如果未解码队列中数据足够多，则循环等待
 		if (demux->m_audioPacketQueue.size + demux->m_videoPacketQueue.size > MAX_QUEUE_SIZE ||
@@ -209,6 +234,6 @@ BOOL FFDemux::DemuxThread(void* is)
 
 int FFDemux::DecodeInterruptCallback(void* context)
 {
-	PlayerStation* is = static_cast<PlayerStation*>(context);
-	return is->abortRequest;
+	FFDemux* is = static_cast<FFDemux*>(context);
+	return is->IsStop();
 }

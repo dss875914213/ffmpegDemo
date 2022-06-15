@@ -10,6 +10,8 @@ int main(int argc, char* argv[])
 		return -1;
 	}
 	//cout << "Try playing " << argv[1] << "..."<<endl;
-	PlayerRunning(argv[1]);
+	Player* player = new Player();
+	player->PlayerRunning(argv[1]);
+	delete player;
 	return 0;
 }

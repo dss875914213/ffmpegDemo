@@ -1,5 +1,6 @@
 #include "player.h"
 #include <iostream>
+#include "config.h"
 using namespace std;
 
 // 初始化编码队列
