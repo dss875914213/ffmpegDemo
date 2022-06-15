@@ -156,6 +156,14 @@ PacketQueue* FFDemux::GetAudioPacketQueue()
 	return &m_audioPacketQueue;
 }
 
+AVStream* FFDemux::GetStream(BOOL isVideo)
+{
+	if (isVideo)
+		return m_pVideoStream;
+	else
+		return m_pAudioStream;
+}
+
 BOOL FFDemux::StreamHasEnoughPackets(AVStream* stream, int streamIndex, PacketQueue* queue)
 {
 	return streamIndex<0 ||

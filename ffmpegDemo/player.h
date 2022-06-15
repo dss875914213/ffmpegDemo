@@ -21,6 +21,8 @@ public:
 	int PlayerRunning(const char* pInputFile);
 	BOOL IsStop();
 	BOOL IsPause();
+	FFDemux* GetDemux();
+	Audio* GetAudio();
 public:
 	BOOL PlayerInit(string pInputFile);
 	BOOL PlayerDeinit();

@@ -3,16 +3,33 @@
 #include "frame.h"
 
 Audio::Audio()
+	:m_swrContext(NULL),
+	m_pAudioFrame(NULL),
+	m_pAudioFrameRwr(NULL),
+	m_pAudioCodecContext(NULL),
+	m_player(NULL),
+	m_packetQueue(NULL),
+	m_pStream(NULL),
+	m_decodeThread(NULL),
+	m_audioFrameRwrSize(0),
+	m_audioHardwareBufferSize(0),
+	m_audioFrameSize(0),
+	m_audioCopyIndex(0),
+	m_audioWriteBufferSize(0),
+	m_audioClock(0),
+	m_audioClockSerial(0)
 {
 	// -DSS TODO 初始化参数
 }
 
 BOOL Audio::Init(PacketQueue* pPacketQueue, Player* player)
 {
+	m_packetQueue = pPacketQueue;
 	if (FrameQueueInit(&m_frameQueue, pPacketQueue, SAMPLE_QUEUE_SIZE, 1) < 0)
 		return FALSE;
 	m_player = player;
 	InitClock(&m_audioPlayClock, &m_packetQueue->serial);
+	m_pStream = player->GetDemux()->GetStream(FALSE);
 	return TRUE;
 }
 
@@ -29,6 +46,11 @@ void Audio::Close()
 	FrameQueueSignal(&m_frameQueue);
 	SDL_WaitThread(m_decodeThread, NULL);
 	FrameQueueDestroy(&m_frameQueue);
+}
+
+PlayClock* Audio::GetClock()
+{
+	return &m_audioPlayClock;
 }
 
 BOOL Audio::OnDecodeThread()
@@ -214,7 +236,7 @@ BOOL Audio::OpenAudioStream()
 
 	// 1.为音频流构建解码器 AVCodecContext
 	// 1.1 获取解码器参数 AVCodecParameters
-	pCodecParameters = m_pAudioStream->codecpar;
+	pCodecParameters = m_pStream->codecpar;
 	// 1.2 获取解码器
 	pCodec = const_cast<AVCodec*>(avcodec_find_decoder(pCodecParameters->codec_id));
 	if (pCodec == NULL)
@@ -248,7 +270,7 @@ BOOL Audio::OpenAudioStream()
 		return -1;
 	}
 	// 时间基准
-	pCodecContext->pkt_timebase = m_pAudioStream->time_base;
+	pCodecContext->pkt_timebase = m_pStream->time_base;
 	// 设置音频解码上下文
 	m_pAudioCodecContext = pCodecContext;
 

@@ -73,6 +73,7 @@ int PacketQueueGet(PacketQueue* packetQueue, AVPacket* packet, int block)
 	while (1)
 	{
 		// 停止请求
+		// -DSS TODO 把 player 传进来
 		if (packetQueue->abortRequest)
 			break;
 		pPacketNode = packetQueue->firstPacket;

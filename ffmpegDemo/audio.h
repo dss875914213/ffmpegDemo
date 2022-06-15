@@ -11,7 +11,7 @@ public:
 	void DeInit();
 	BOOL Open();
 	void Close();
-
+	PlayClock* GetClock();
 private:
 	BOOL OnDecodeThread();
 	void SetClockAt(PlayClock* clock, double pts, int serial, double time);
@@ -32,7 +32,7 @@ private:
 	FrameQueue			m_frameQueue;					// 音频解码后帧队列
 
 
-	AVStream*			m_pAudioStream;					// 音频流
+	AVStream*			m_pStream;					// 音频流
 
 	SwrContext*			m_swrContext;					// 音频格式转换上下文
 	AudioParam			m_audioParamSource;				// 源音频参数(输入数据的参数)

@@ -18,6 +18,7 @@ public:
 	BOOL Close();
 	PacketQueue* GetVideoPacketQueue();
 	PacketQueue* GetAudioPacketQueue();
+	AVStream* GetStream(BOOL isVideo);
 
 private:
 	BOOL StreamHasEnoughPackets(AVStream* stream, int streamIndex, PacketQueue* queue);

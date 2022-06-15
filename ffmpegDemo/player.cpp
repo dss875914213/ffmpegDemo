@@ -88,6 +88,16 @@ BOOL Player::IsPause()
 	return m_pause;
 }
 
+FFDemux* Player::GetDemux()
+{
+	return m_demux;
+}
+
+Audio* Player::GetAudio()
+{
+	return m_audio;
+}
+
 BOOL Player::PlayerInit(string pInputFile)
 {
 	// demux 初始化  video 初始化 audio 初始化

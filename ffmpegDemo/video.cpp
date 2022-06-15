@@ -22,6 +22,8 @@ BOOL Video::Init(PacketQueue* videoPacketQueue, Player* player)
 		return FALSE;
 	m_player = player;
 	InitClock(&m_videoPlayClock, &m_packetQueue->serial);
+	m_audioPlayClock = player->GetAudio()->GetClock();
+	m_pStream = player->GetDemux()->GetStream(TRUE);
 	return TRUE;
 }
 
@@ -133,7 +135,7 @@ int Video::DecodeFrame(AVCodecContext* pCodecContext, PacketQueue* pPacketQueue,
 		while (1)
 		{
 			// 停止请求
-			if (pPacketQueue->abortRequest)
+			if (m_player->IsStop())
 				return -1;
 
 			// 3. 从解码器接收 frame
@@ -212,21 +214,25 @@ BOOL Video::OnDecodeThread()
 
 	while (1)
 	{
+		cout << "start...";
 		// 停止请求
 		if (m_player->IsStop())
 			break;
 		// 从 packet_queue 中取一个 packet, 解码生成 frame
 		gotPicture = DecodeFrame(m_pCodecContext, m_packetQueue, pFrame);
+		cout << "decode...";
 		if (gotPicture < 0)
 			goto EXIT;
 		duration = (frameRate.num && frameRate.den ? av_q2d(AVRational{ frameRate.den, frameRate.num }) : 0);// 当前帧播放时长 帧率 分母/分子
 		pts = (pFrame->pts == AV_NOPTS_VALUE) ? NAN : pFrame->pts * av_q2d(timebase); // 当前显示时间戳
 		// 将解码后数据，放入解码后队列
 		ret = QueuePicture(pFrame, pts, duration, pFrame->pkt_pos); // 将当前帧压入 frameQueue
+		cout << "QueuePicture...";
 		// av_frame_unref，它的作用是释放音视频数据资源，并给 frame 设置初值
 		av_frame_unref(pFrame);
 		if (ret < 0)
 			goto EXIT;
+		cout << "end...";
 	}
 EXIT:
 	// av_frame_free是释放所有资源，包括音视频数据资源和结构体本身的内存
@@ -256,7 +262,7 @@ double Video::ComputeTargetDelay(double delay)
 	double syncThreshold, diff = 0;
 	// 视频时钟与同步时钟的差异，时钟值是上一帧 pts 值（实为：上一帧pts+上一帧至今流逝的时间差）
 	// 视频pts + 视频上一帧帧渲染时间 - 音频 pts - 音频上一帧帧渲染时间
-	diff = GetClock(&m_videoPlayClock) - GetClock(&m_audioPlayClock);
+	diff = GetClock(&m_videoPlayClock) - GetClock(m_audioPlayClock);
 	// delay 是上一帧播放时长：当前帧（待播放的帧）播放时间与上一帧时间差理论值
 	// diff 是视频时钟与同步时钟的差值
 	// 若 delay<AV_SYNC_THRESHOLD_MIN,则同步阈值为 AV_SYNC_THRESHOLD_MIN

@@ -36,7 +36,6 @@ private:
 	Player*				m_player;
 	PacketQueue*		m_packetQueue;			// 视频未解码帧队列
 
-
 	AVStream*			m_pStream;				// 视频流
 	AVCodecContext*		m_pCodecContext;		// 视频编码器上下文	
 	PlayClock			m_videoPlayClock;		// 视频播放时钟
@@ -49,7 +48,7 @@ private:
 	SDL_Thread*			m_decodeThread;			// 视频解码线程
 	SDLVideo			m_sdlVideo;
 	AVFormatContext*	m_pFormatContext;		// 流媒体解析上下文
-	PlayClock			m_audioPlayClock;		// 音频播放时钟 // -DSS TODO 从外界传过来
+	PlayClock*			m_audioPlayClock;		// 音频播放时钟 // -DSS TODO 从外界传过来
 
 };
 
