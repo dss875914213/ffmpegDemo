@@ -3,7 +3,7 @@
 #include "config.h"
 using namespace std;
 
-// 初始化编码队列
+// 初始化编码队列 置为0，并创建 mutex 和 cond
 int PacketQueueInit(PacketQueue* packetQueue)
 {
 	memset(packetQueue, 0, sizeof(PacketQueue));
@@ -69,7 +69,6 @@ int PacketQueueGet(PacketQueue* packetQueue, AVPacket* packet, int block)
 	AVPacketList* pPacketNode;
 	int ret = 0;
 	SDL_LockMutex(packetQueue->mutex);
-	av_log(NULL, AV_LOG_INFO, "start PacketQueueGet--------------------------------\n");
 	while (1)
 	{
 		// 停止请求
@@ -100,13 +99,9 @@ int PacketQueueGet(PacketQueue* packetQueue, AVPacket* packet, int block)
 		}
 		// 没数据，阻塞，则等待 mutex 线程，将数据放入未解码队列中
 		else
-		{
-			av_log(NULL, AV_LOG_INFO, "SDL_CondWait PacketQueueGet--------------------------------\n");
 			SDL_CondWait(packetQueue->cond, packetQueue->mutex);
-		}
 	}
 	SDL_UnlockMutex(packetQueue->mutex);
-	av_log(NULL, AV_LOG_INFO, "End PacketQueueGet--------------------------------\n");
 	return ret;
 }
 

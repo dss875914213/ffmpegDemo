@@ -7,37 +7,35 @@ class Audio
 {
 public:
 	Audio();
-	BOOL Init(PacketQueue* pPacketQueue, Player* player);
-	void DeInit();
-	BOOL Open();
-	void Close();
-	PlayClock* GetClock();
+	BOOL			Init(PacketQueue* pPacketQueue, Player* player);	// 初始化
+	BOOL			Open();	// 创建线程
+	void			Close();	// 关闭
+	PlayClock*		GetClock();	// 获得时间，用于同步
 private:
-	BOOL OnDecodeThread();
-	void SetClockAt(PlayClock* clock, double pts, int serial, double time);
-	void SetClock(PlayClock* clock, double pts, int serial);
-	void InitClock(PlayClock* clock, int* queueSerial);
-	void OnSDLAudioCallback(Uint8* stream, int len);
-	int	 AudioDecodeFrame(AVCodecContext* pCodecContext, PacketQueue* pPacketQueue, AVFrame* frame);
-	BOOL OpenAudioStream();
-	BOOL AudioResample(INT64 callbackTime);
-	BOOL OpenAudioPlaying();
-	static BOOL DecodeThread(void* arg);
-	static void SDLAudioCallback(void* opaque, Uint8* stream, int len);
+	void			InitClock(PlayClock* clock, int* queueSerial);
+	void			SetClockAt(PlayClock* clock, double pts, int serial, double time);
+	void			SetClock(PlayClock* clock, double pts, int serial);
+
+	BOOL			OpenAudioStream();
+	BOOL			OpenAudioPlaying();
+
+	BOOL			OnDecodeThread();
+	void			OnSDLAudioCallback(Uint8* stream, int len);
+	static BOOL		DecodeThread(void* arg);
+	static void		SDLAudioCallback(void* opaque, Uint8* stream, int len);
+
+	int				AudioDecodeFrame(AVCodecContext* pCodecContext, PacketQueue* pPacketQueue, AVFrame* frame);
+	BOOL			AudioResample(INT64 callbackTime);
+
 
 private:
 	Player*				m_player;
 	PacketQueue*		m_packetQueue;					// 音频解码前帧队列
-
 	FrameQueue			m_frameQueue;					// 音频解码后帧队列
-
-
-	AVStream*			m_pStream;					// 音频流
-
+	AVStream*			m_pStream;						// 音频流
 	SwrContext*			m_swrContext;					// 音频格式转换上下文
 	AudioParam			m_audioParamSource;				// 源音频参数(输入数据的参数)
 	AudioParam			m_audioParamTarget;				// 目标音频参数
-
 	int					m_audioHardwareBufferSize;		// SDL 音频缓冲区大小（单位字节）
 	uint8_t*			m_pAudioFrame;					// 指向待播放的一帧音频数据，指向的数据将被拷入SDL音频缓冲区
 	uint8_t*			m_pAudioFrameRwr;				// 音频重采样的输出缓冲区

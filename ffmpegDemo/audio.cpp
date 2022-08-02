@@ -19,7 +19,9 @@ Audio::Audio()
 	m_audioClock(0),
 	m_audioClockSerial(0)
 {
-	// -DSS TODO 初始化参数
+	ZeroMemory(&m_frameQueue, sizeof(m_frameQueue));
+	ZeroMemory(&m_audioParamSource, sizeof(m_audioParamSource));
+	ZeroMemory(&m_audioPlayClock, sizeof(m_audioPlayClock));
 }
 
 BOOL Audio::Init(PacketQueue* pPacketQueue, Player* player)
@@ -44,6 +46,7 @@ void Audio::Close()
 {
 	SDL_PauseAudioDevice(m_audioDevice, 1);
 	FrameQueueSignal(&m_frameQueue);
+	PacketQueueAbort(m_packetQueue);
 	SDL_WaitThread(m_decodeThread, NULL);
 	FrameQueueDestroy(&m_frameQueue);
 }

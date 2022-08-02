@@ -7,8 +7,8 @@
 #include "video.h"
 #include "audio.h"
 
-
 using namespace std;
+#define SAFE_DELETE(p) if(p){ delete p; p = NULL;}
 
 class FFDemux;
 class Video;
@@ -18,21 +18,20 @@ class Player
 public:
 	Player();
 	~Player();
-	int PlayerRunning(const char* pInputFile);
-	BOOL IsStop();
-	BOOL IsPause();
-	FFDemux* GetDemux();
-	Audio* GetAudio();
-public:
-	BOOL PlayerInit(string pInputFile);
-	BOOL PlayerDeinit();
-	void DoExit();
-	void StreamTogglePause();
-	void TogglePause();
+	int			PlayerRunning(const char* pInputFile);
+	void		TogglePause();
+	BOOL		IsPause();
+	BOOL		IsStop();
+	void		DoExit();
+	FFDemux*	GetDemux();
+	Audio*		GetAudio();
 private:
-	BOOL	m_stop;
-	BOOL	m_pause;
-	BOOL	m_step;
+	BOOL		PlayerInit(string pInputFile);
+	BOOL		PlayerDeinit();
+private:
+	BOOL		m_stop;
+	BOOL		m_pause;
+	BOOL		m_step;
 
 	FFDemux*	m_demux;
 	Video*		m_video;

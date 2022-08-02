@@ -8,29 +8,32 @@ class Video
 public:
 	Video();
 	~Video();
-	BOOL Init(PacketQueue* videoPacketQueue, Player* player);
-	BOOL Open();
-	void Close();
-	void Destroy();
-	void TogglePause();
+	BOOL			Init(PacketQueue* videoPacketQueue, Player* player);	// 初始化
+	BOOL			Open();	// 创建线程
+	void			Close();	// 关闭
+	void			TogglePause();
 private:
-	double GetClock(PlayClock* clock);
-	void SetClockAt(PlayClock* clock, double pts, int serial, double time);
-	void SetClock(PlayClock* clock, double pts, int serial);
-	void InitClock(PlayClock* clock, int* queueSerial);
-	BOOL QueuePicture(AVFrame* sourceFrame, double pts, double duration, int64_t pos);
-	int  DecodeFrame(AVCodecContext* pCodecContext, PacketQueue* pPacketQueue, AVFrame* frame);
-	BOOL OnDecodeThread();
-	BOOL OnPlayingThread();
-	double ComputeTargetDelay(double delay);
-	double VpDuration(Frame* vp, Frame* nextvp);
-	void UpdatePts(double pts, int serial);
-	void Display();
-	void Refresh(double* remainingTime);
-	int OpenPlaying();
-	int OpenStream();
-	static BOOL DecodeThread(void* arg);
-	static BOOL PlayingThread(void* arg);
+	void			InitClock(PlayClock* clock, int* queueSerial);
+	double			GetClock(PlayClock* clock);
+	void			SetClockAt(PlayClock* clock, double pts, int serial, double time);
+	void			SetClock(PlayClock* clock, double pts, int serial);
+
+	int				OpenPlaying();
+	int				OpenStream();
+
+	double			ComputeTargetDelay(double delay);
+	double			VpDuration(Frame* vp, Frame* nextvp);
+	void			UpdatePts(double pts, int serial);
+
+	BOOL			OnDecodeThread();
+	BOOL			OnPlayingThread();
+	static BOOL		DecodeThread(void* arg);
+	static BOOL		PlayingThread(void* arg);
+
+	void			Refresh(double* remainingTime);
+	void			Display();
+	BOOL			QueuePicture(AVFrame* sourceFrame, double pts, double duration, int64_t pos);
+	int				DecodeFrame(AVCodecContext* pCodecContext, PacketQueue* pPacketQueue, AVFrame* frame);
 
 private:
 	Player*				m_player;
@@ -48,7 +51,7 @@ private:
 	SDL_Thread*			m_decodeThread;			// 视频解码线程
 	SDLVideo			m_sdlVideo;
 	AVFormatContext*	m_pFormatContext;		// 流媒体解析上下文
-	PlayClock*			m_audioPlayClock;		// 音频播放时钟 // -DSS TODO 从外界传过来
+	PlayClock*			m_audioPlayClock;		// 音频播放时钟 
 
 };
 

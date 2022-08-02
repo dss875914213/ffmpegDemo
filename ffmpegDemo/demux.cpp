@@ -6,17 +6,15 @@
 using namespace std;
 
 FFDemux::FFDemux()
-	:m_fileName(""),
+	:m_player(NULL),
+	m_readThread(NULL),
 	m_audioIndex(-1),
 	m_videoIndex(-1),
 	m_pFormatContext(NULL),
-	m_pAudioStream(NULL),
-	m_pVideoStream(NULL),
-	m_pAudioCodecContext(NULL),
-	m_pVideoCodecContext(NULL),
 	m_continueReadThread(NULL)
 {
-
+	ZeroMemory(&m_audioPacketQueue, sizeof(m_audioPacketQueue));
+	ZeroMemory(&m_videoPacketQueue, sizeof(m_videoPacketQueue));
 }
 
 FFDemux::~FFDemux()
@@ -24,15 +22,13 @@ FFDemux::~FFDemux()
 
 }
 
-BOOL FFDemux::Init(string filename, Player* player)
+BOOL FFDemux::Init(const string& filename, Player* player)
 {
-	m_fileName = filename;
 	m_player = player;
 	// 分配流媒体解析上下文
 	AVFormatContext* pFormatContext = avformat_alloc_context();
-	int error;
-	int ret;
-	// 音视频分别对应的流索引
+	INT32 error = 0;
+	INT32 ret = 0;
 	if (!pFormatContext)
 	{
 		cout << "Could not allocate context." << endl;
@@ -46,7 +42,7 @@ BOOL FFDemux::Init(string filename, Player* player)
 
 	// 1.构建 AVFormatContext
 	// 1.1 打开视频文件：读取文件头，将文件格式信息存储在 frame context 中
-	error = avformat_open_input(&pFormatContext, m_fileName.c_str(), NULL, NULL);
+	error = avformat_open_input(&pFormatContext, filename.c_str(), NULL, NULL);
 	if (error < 0)
 	{
 		cout << "avformat_open_input() failed " << error << endl;
@@ -64,10 +60,9 @@ BOOL FFDemux::Init(string filename, Player* player)
 		ret = -1;
 		goto FAIL;
 	}
-
 	// 2. 查找第一个音频流/ 视频流
 	// nb_streams 文件中流媒体个数
-	for (int i = 0; i < pFormatContext->nb_streams; i++)
+	for (INT32 i = 0; i < pFormatContext->nb_streams; i++)
 	{
 		if ((pFormatContext->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_AUDIO) && (m_audioIndex == -1))
 		{
@@ -88,14 +83,9 @@ BOOL FFDemux::Init(string filename, Player* player)
 		ret = -1;
 	FAIL:
 		if (pFormatContext != NULL)
-			// 关闭流媒体上下文
-			avformat_close_input(&pFormatContext);
+			avformat_close_input(&pFormatContext); // 关闭流媒体上下文
 		return ret;
 	}
-	// 设置音频流
-	m_pAudioStream = pFormatContext->streams[m_audioIndex];
-	// 设置视频流
-	m_pVideoStream = pFormatContext->streams[m_videoIndex];
 
 	// 未解压缩数据队列初始化
 	if (PacketQueueInit(&m_videoPacketQueue) < 0 || PacketQueueInit(&m_audioPacketQueue) < 0)
@@ -112,10 +102,6 @@ BOOL FFDemux::Init(string filename, Player* player)
 	return 0;
 }
 
-BOOL FFDemux::DemuxDeinit()
-{
-	return 0;
-}
 
 BOOL FFDemux::Open()
 {
@@ -146,22 +132,20 @@ BOOL FFDemux::Close()
 	return TRUE;
 }
 
-PacketQueue* FFDemux::GetVideoPacketQueue()
+PacketQueue* FFDemux::GetPacketQueue(BOOL isVideo)
 {
-	return &m_videoPacketQueue;
-}
-
-PacketQueue* FFDemux::GetAudioPacketQueue()
-{
-	return &m_audioPacketQueue;
+	if (isVideo)
+		return &m_videoPacketQueue;
+	else
+		return &m_audioPacketQueue;
 }
 
 AVStream* FFDemux::GetStream(BOOL isVideo)
 {
 	if (isVideo)
-		return m_pVideoStream;
+		return m_pFormatContext->streams[m_videoIndex];
 	else
-		return m_pAudioStream;
+		return m_pFormatContext->streams[m_audioIndex];
 }
 
 BOOL FFDemux::StreamHasEnoughPackets(AVStream* stream, int streamIndex, PacketQueue* queue)
@@ -181,18 +165,24 @@ BOOL FFDemux::DemuxThread(void* is)
 	SDL_mutex* waitMutex = SDL_CreateMutex();
 	cout << "demux_thread running..." << endl;
 
+	AVStream* videoStream = demux->GetStream(TRUE);
+	AVStream* audioStream = demux->GetStream(FALSE);
 	// 4. 解复用处理
 	while (1)
 	{
+		// -DSS TODO 解析完，这个线程是不是也要退出
+
+
 		if (demux->IsStop())
 			break;
 		// 如果未解码队列中数据足够多，则循环等待
+
 		if (demux->m_audioPacketQueue.size + demux->m_videoPacketQueue.size > MAX_QUEUE_SIZE ||
-			(demux->StreamHasEnoughPackets(demux->m_pAudioStream, demux->m_audioIndex, &demux->m_audioPacketQueue) &&
-				demux->StreamHasEnoughPackets(demux->m_pVideoStream, demux->m_videoIndex, &demux->m_videoPacketQueue)))
+			(demux->StreamHasEnoughPackets(audioStream, demux->m_audioIndex, &demux->m_audioPacketQueue) &&
+				demux->StreamHasEnoughPackets(videoStream, demux->m_videoIndex, &demux->m_videoPacketQueue)))
 		{
 			SDL_LockMutex(waitMutex);
-			// TODO 读线程时，应该释放该变量
+			// -DSS TODO 读线程时，应该释放该变量；退出时也应该触发这个函数
 			SDL_CondWaitTimeout(demux->m_continueReadThread, waitMutex, 10);
 			SDL_UnlockMutex(waitMutex);
 			continue;
@@ -204,8 +194,6 @@ BOOL FFDemux::DemuxThread(void* is)
 		{
 			if (ret == AVERROR_EOF)
 			{
-				// TODO 送一次空帧就好了，如果音视频都发送完毕，则退出该线程
-
 				// 输入文件已读完，则往 packet 队列中发送 NULL packet, 以冲洗 flush 解码器,否则解码器中缓存的帧取不出来
 				if (demux->m_videoIndex >= 0)
 					PacketQueuePutNullPacket(&demux->m_videoPacketQueue, demux->m_videoIndex);

@@ -3,30 +3,34 @@
 Player::Player():
 	m_stop(FALSE),
 	m_pause(FALSE),
-	m_step(FALSE)
+	m_step(FALSE),
+	m_demux(NULL),
+	m_video(NULL),
+	m_audio(NULL)
 {
-	m_demux = new FFDemux();
-	m_video = new Video();
-	m_audio = new Audio();
 }
 
 Player::~Player()
 {
-	delete m_demux;
-	delete m_video;
-	delete m_audio;
+	
 }
 
 int Player::PlayerRunning(const char* pInputFile)
 {
+	SAFE_DELETE(m_demux);
+	SAFE_DELETE(m_video);
+	SAFE_DELETE(m_audio);
+
+	m_demux = new FFDemux();
+	m_video = new Video();
+	m_audio = new Audio();
 	BOOL bRes = FALSE;
 	// 播放器初始化
 	bRes = PlayerInit(pInputFile);
 	if (!bRes)
 	{
 		cout << "player init failed" << endl;
-		// 开始退出
-		DoExit();
+		DoExit();  // 开始退出
 	}
 	
 	m_demux->Open();		// 打开多路复用器，并创建线程用于解封装
@@ -34,6 +38,7 @@ int Player::PlayerRunning(const char* pInputFile)
 	m_audio->Open();		// 打开音频渲染
 
 	SDL_Event event;
+	// 主线程
 	while (1)
 	{
 		// 更新事件队列
@@ -102,8 +107,8 @@ BOOL Player::PlayerInit(string pInputFile)
 {
 	// demux 初始化  video 初始化 audio 初始化
 	m_demux->Init(pInputFile, this);
-	m_video->Init(m_demux->GetVideoPacketQueue(), this);
-	m_audio->Init(m_demux->GetAudioPacketQueue(), this);
+	m_video->Init(m_demux->GetPacketQueue(true), this);
+	m_audio->Init(m_demux->GetPacketQueue(false), this);
 
 	// 失能停止请求
 	m_stop = FALSE;
@@ -121,30 +126,47 @@ BOOL Player::PlayerInit(string pInputFile)
 int Player::PlayerDeinit()
 {
 	m_stop = TRUE;
-	m_audio->Close();
-	m_video->Close();
-	m_demux->Close();
+	cout << "PlayerDeinit start" << endl;
+	if (m_video)
+	{
+		m_video->Close();
+		delete m_video;
+		m_video = NULL;
+	}
+
+	cout << "video closed" << endl;
+
+	if (m_audio)
+	{
+		m_audio->Close();
+		delete m_audio;
+		m_audio = NULL;
+	}
+
+	cout << "audio closed" << endl;
+
+	
+	if (m_demux)
+	{
+		m_demux->Close();
+		delete m_demux;
+		m_demux = NULL;
+	}
+	cout << "PlayerDeinit end" << endl;
 	return 0;
 }
 
 void Player::DoExit()
 {
 	PlayerDeinit(); // 播放器反初始化
-	m_video->Destroy();
 	avformat_network_deinit();	// 撤销 avformat_network_init 的初始化
 	SDL_Quit(); // 退出 SDL
 	exit(0);	// 退出系统
 }
-
-void Player::StreamTogglePause()
+void Player::TogglePause()
 {
 	if (m_pause)
 		m_video->TogglePause();
 	m_pause = !m_pause;
-}
-
-void Player::TogglePause()
-{
-	StreamTogglePause();
 	m_step = FALSE;
 }

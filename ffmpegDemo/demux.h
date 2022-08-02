@@ -11,34 +11,29 @@ class  FFDemux
 public:
 	FFDemux();
 	~FFDemux();
-	BOOL Init(string filename, Player* player);
-	BOOL DemuxDeinit();
-	BOOL Open();
-	BOOL IsStop();
-	BOOL Close();
-	PacketQueue* GetVideoPacketQueue();
-	PacketQueue* GetAudioPacketQueue();
-	AVStream* GetStream(BOOL isVideo);
+	BOOL					Init(const string& filename, Player* player); // 初始化
+	BOOL					Open();	// 创建读文件线程 (线程函数, 线程名字, 传给线程的参数)
+	BOOL					Close();	// 关闭
+	PacketQueue*			GetPacketQueue(BOOL isVideo);  // 得到对应队列
+	AVStream*				GetStream(BOOL isVideo);	// 得到对应流
 
 private:
-	BOOL StreamHasEnoughPackets(AVStream* stream, int streamIndex, PacketQueue* queue);
-	static BOOL DemuxThread(void* mux);
-	static int DecodeInterruptCallback(void* context);
+	BOOL					IsStop();	// 是否停止
+	BOOL					StreamHasEnoughPackets(AVStream* stream, int streamIndex, PacketQueue* queue);
+	static BOOL				DemuxThread(void* mux);
+	static int				DecodeInterruptCallback(void* context);
 
 private:
-	std::string			m_fileName;
-	Player*				m_player;
-
-	SDL_Thread*			m_readThread;
-	PacketQueue			m_audioPacketQueue;		// 音频未解码帧队列
-	PacketQueue			m_videoPacketQueue;		// 视频未解码帧队列
 	AVFormatContext*	m_pFormatContext;		// 流媒体解析上下文
-	AVStream*			m_pAudioStream;			// 音频流
-	AVStream*			m_pVideoStream;			// 视频流
-	AVCodecContext*		m_pAudioCodecContext;	// 音频编码器上下文
-	AVCodecContext*		m_pVideoCodecContext;	// 视频编码器上下文
 	int					m_audioIndex;			// 音频流索引
 	int					m_videoIndex;			// 视频流索引
+
+	Player*				m_player;				// 播放器
+	PacketQueue			m_audioPacketQueue;		// 音频未解码帧队列
+	PacketQueue			m_videoPacketQueue;		// 视频未解码帧队列
+
 	SDL_cond*			m_continueReadThread;	// 读线程信号量
+	SDL_Thread*			m_readThread;			// 读线程
+
 };
 

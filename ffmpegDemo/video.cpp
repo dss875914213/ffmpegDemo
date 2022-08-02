@@ -6,8 +6,21 @@
 using namespace std;
 
 Video::Video()
+	:m_player(NULL),
+	m_packetQueue(NULL),
+	m_pStream(NULL),
+	m_pCodecContext(NULL),
+	m_frameTimer(0.0f),
+	m_swsContext(NULL),
+	m_pFrameYUV(NULL),
+	m_playThread(NULL),
+	m_decodeThread(NULL),
+	m_pFormatContext(NULL),
+	m_audioPlayClock(NULL)
 {
-	// -DSS TODO 参数初始化
+	ZeroMemory(&m_videoPlayClock, sizeof(m_videoPlayClock));
+	ZeroMemory(&m_frameQueue, sizeof(m_frameQueue));
+	ZeroMemory(&m_sdlVideo, sizeof(m_sdlVideo));
 }
 
 Video::~Video()
@@ -37,16 +50,13 @@ BOOL Video::Open()
 void Video::Close()
 {
 	FrameQueueSignal(&m_frameQueue);
+	PacketQueueAbort(m_packetQueue);
 	SDL_WaitThread(m_decodeThread, NULL);
 	SDL_WaitThread(m_playThread, NULL);
 	FrameQueueDestroy(&m_frameQueue);
 	sws_freeContext(m_swsContext);
 	if (m_sdlVideo.texture)
 		SDL_DestroyTexture(m_sdlVideo.texture);
-}
-
-void Video::Destroy()
-{
 	if (m_sdlVideo.renderer)
 		SDL_DestroyRenderer(m_sdlVideo.renderer); // 销毁渲染器
 	if (m_sdlVideo.window)
@@ -214,25 +224,21 @@ BOOL Video::OnDecodeThread()
 
 	while (1)
 	{
-		cout << "start...";
 		// 停止请求
 		if (m_player->IsStop())
 			break;
 		// 从 packet_queue 中取一个 packet, 解码生成 frame
 		gotPicture = DecodeFrame(m_pCodecContext, m_packetQueue, pFrame);
-		cout << "decode...";
 		if (gotPicture < 0)
 			goto EXIT;
 		duration = (frameRate.num && frameRate.den ? av_q2d(AVRational{ frameRate.den, frameRate.num }) : 0);// 当前帧播放时长 帧率 分母/分子
 		pts = (pFrame->pts == AV_NOPTS_VALUE) ? NAN : pFrame->pts * av_q2d(timebase); // 当前显示时间戳
 		// 将解码后数据，放入解码后队列
 		ret = QueuePicture(pFrame, pts, duration, pFrame->pkt_pos); // 将当前帧压入 frameQueue
-		cout << "QueuePicture...";
 		// av_frame_unref，它的作用是释放音视频数据资源，并给 frame 设置初值
 		av_frame_unref(pFrame);
 		if (ret < 0)
 			goto EXIT;
-		cout << "end...";
 	}
 EXIT:
 	// av_frame_free是释放所有资源，包括音视频数据资源和结构体本身的内存
