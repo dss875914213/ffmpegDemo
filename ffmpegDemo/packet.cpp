@@ -64,10 +64,10 @@ int PacketQueuePut(PacketQueue* packetQueue, AVPacket* packet)
 }
 
 // 读队列头部
-int PacketQueueGet(PacketQueue* packetQueue, AVPacket* packet, int block)
+BOOL PacketQueueGet(PacketQueue* packetQueue, AVPacket* packet, BOOL block)
 {
 	AVPacketList* pPacketNode;
-	int ret = 0;
+	BOOL ret = FALSE;
 	SDL_LockMutex(packetQueue->mutex);
 	while (1)
 	{
@@ -88,13 +88,13 @@ int PacketQueueGet(PacketQueue* packetQueue, AVPacket* packet, int block)
 			*packet = pPacketNode->pkt;
 			// 只释放 pPacketNode 本身，不释放里面的 packet
 			av_free(pPacketNode);
-			ret = 1;
+			ret = TRUE;
 			break;
 		}
 		// 如果没数据，且不阻塞，则停止
 		else if (!block)
 		{
-			ret = 0;
+			ret = FALSE;
 			break;
 		}
 		// 没数据，阻塞，则等待 mutex 线程，将数据放入未解码队列中
@@ -106,7 +106,7 @@ int PacketQueueGet(PacketQueue* packetQueue, AVPacket* packet, int block)
 }
 
 // 向编码队列中添加空包
-int PacketQueuePutNullPacket(PacketQueue* packetQueue, int streamIndex)
+int PacketQueuePutNullPacket(PacketQueue* packetQueue, INT32 streamIndex)
 {
 	AVPacket pkt1, * pkt = &pkt1;
 	av_init_packet(pkt);

@@ -95,7 +95,7 @@ END:
 	return ret;
 }
 
-void Audio::SetClockAt(PlayClock* clock, double pts, int serial, double time)
+void Audio::SetClockAt(PlayClock* clock, DOUBLE pts, INT32 serial, DOUBLE time)
 {
 	clock->pts = pts;	// 设置渲染时间
 	clock->lastUpdated = time;	// 设置上次更新时间
@@ -103,14 +103,14 @@ void Audio::SetClockAt(PlayClock* clock, double pts, int serial, double time)
 	clock->serial = serial;	// 设置播放序列
 }
 
-void Audio::SetClock(PlayClock* clock, double pts, int serial)
+void Audio::SetClock(PlayClock* clock, DOUBLE pts, INT32 serial)
 {
 	// time 单位(ns)
 	double time = av_gettime_relative() / 1000000.0; // av_gettime_relative 获取自某个未指定起点以来的当前时间（以微秒为单位）
 	SetClockAt(clock, pts, serial, time);
 }
 
-void Audio::InitClock(PlayClock* clock, int* queueSerial)
+void Audio::InitClock(PlayClock* clock, INT32* queueSerial)
 {
 	clock->speed = 1.0;					// 设置播放速度
 	clock->paused = 0;					// 设置不暂停
@@ -118,13 +118,12 @@ void Audio::InitClock(PlayClock* clock, int* queueSerial)
 	SetClock(clock, NAN, -1);
 }
 
-void Audio::OnSDLAudioCallback(Uint8* stream, int len)
+void Audio::OnSDLAudioCallback(Uint8* stream, INT32 len)
 {
 	int audioSize, len1;
 	// 回调开始的时间
 	int64_t audioCallbackTime = av_gettime_relative();
 
-	// TODO 音频暂停也播放声音
 	if (m_player->IsPause())
 	{
 		memset(stream, 0, len);
@@ -132,7 +131,7 @@ void Audio::OnSDLAudioCallback(Uint8* stream, int len)
 	}
 	while (len > 0)
 	{
-		if (m_audioCopyIndex >= static_cast<int>(m_audioFrameSize))
+		if (m_audioCopyIndex >= static_cast<INT32>(m_audioFrameSize))
 		{
 			// 1.从音频 frame 队列中取出一个 frame，转换为音频设备支持的格式，返回值是重采样音频帧的大小
 			audioSize = AudioResample(audioCallbackTime);
@@ -152,7 +151,7 @@ void Audio::OnSDLAudioCallback(Uint8* stream, int len)
 			len1 = len;
 		// 2.将转换后的音频数据拷贝到音频缓冲区 stream 中，之后的播放就是音频设备驱动程序工作
 		if (m_pAudioFrame != NULL)
-			memcpy(stream, static_cast<uint8_t*>(m_pAudioFrame) + m_audioCopyIndex, len1);
+			memcpy(stream, static_cast<UINT8*>(m_pAudioFrame) + m_audioCopyIndex, len1);
 		else
 			memset(stream, 0, len1);
 		len -= len1;
@@ -167,14 +166,14 @@ void Audio::OnSDLAudioCallback(Uint8* stream, int len)
 	{
 		// 更新音频时钟，更新时刻：每次往声卡缓冲区拷入数据后
 		// 前面 audioDecodeFrame 中更新的 is->audioClock 是以音频帧为单位，所以此处第二个参数要减去未拷贝数据量占用的时间
-		SetClockAt(&m_audioPlayClock, m_audioClock - static_cast<double>(2 * m_audioHardwareBufferSize + m_audioWriteBufferSize) /
+		SetClockAt(&m_audioPlayClock, m_audioClock - static_cast<DOUBLE>(2 * m_audioHardwareBufferSize + m_audioWriteBufferSize) /
 			m_audioParamTarget.bytesPerSec, m_audioClockSerial, audioCallbackTime / 1000000.0);
 	}
 }
 
-int Audio::AudioDecodeFrame(AVCodecContext* pCodecContext, PacketQueue* pPacketQueue, AVFrame* frame)
+BOOL Audio::AudioDecodeFrame(AVCodecContext* pCodecContext, PacketQueue* pPacketQueue, AVFrame* frame)
 {
-	int ret;
+	INT32 ret;
 	while (1)
 	{
 		AVPacket pkt;
@@ -184,6 +183,7 @@ int Audio::AudioDecodeFrame(AVCodecContext* pCodecContext, PacketQueue* pPacketQ
 				return 1;
 			// 3.2 一个音频 packet 含一至多个 frame，每次 avcodec_receive_frame() 返回一个 frame
 			ret = avcodec_receive_frame(pCodecContext, frame);
+			// -DSS TODO 能获取数据，是不是也要把数据放到解码队列里面，感觉这样快一点
 			if (ret >= 0)
 			{
 				// 时基变换，从 d->avcontex->packetTimebase 时基转换到 1/frame->sampleRate 时基
@@ -193,7 +193,7 @@ int Audio::AudioDecodeFrame(AVCodecContext* pCodecContext, PacketQueue* pPacketQ
 					frame->pts = av_rescale_q(frame->pts, pCodecContext->pkt_timebase, timebase);
 				else
 					av_log(NULL, AV_LOG_WARNING, "frame->pts no\n");
-				return 1;
+				return TRUE;
 			}
 			else if (ret == AVERROR_EOF)
 			{
@@ -213,8 +213,8 @@ int Audio::AudioDecodeFrame(AVCodecContext* pCodecContext, PacketQueue* pPacketQ
 			}
 		}
 		// 1.取出一个 packet, 使用 packet 对应的 serial 赋值给 d->packetSerial
-		if (PacketQueueGet(pPacketQueue, &pkt, true) < 0)
-			return -1;
+		if (PacketQueueGet(pPacketQueue, &pkt, TRUE) < 0)
+			return FALSE;
 		// packetQueue 中第一个总是 flushPacket。每次 seek 操作会插入 flushPacket，更新 serial, 开启新的播放序列
 		if (pkt.data == NULL)
 			avcodec_flush_buffers(pCodecContext);  // 复位解码器内部状态/刷新内部缓冲区。当 seek 操作或切换流时应调用此函数
@@ -228,6 +228,7 @@ int Audio::AudioDecodeFrame(AVCodecContext* pCodecContext, PacketQueue* pPacketQ
 			av_packet_unref(&pkt);
 		}
 	}
+	return TRUE;
 }
 
 BOOL Audio::OpenAudioStream()
@@ -235,7 +236,7 @@ BOOL Audio::OpenAudioStream()
 	AVCodecContext* pCodecContext = NULL;
 	AVCodecParameters* pCodecParameters = NULL;
 	AVCodec* pCodec = NULL;
-	int ret;
+	INT32 ret;
 
 	// 1.为音频流构建解码器 AVCodecContext
 	// 1.1 获取解码器参数 AVCodecParameters
@@ -284,9 +285,9 @@ BOOL Audio::OpenAudioStream()
 
 BOOL Audio::AudioResample(INT64 callbackTime)
 {
-	int dataSize, resampledDataSize;
+	INT32 dataSize, resampledDataSize;
 	int64_t decodeChannelLayout;
-	int wantedNumberSamples;
+	INT32 wantedNumberSamples;
 	Frame* audioFrame;
 
 	// 队列中没有帧则等待
@@ -344,11 +345,11 @@ BOOL Audio::AudioResample(INT64 callbackTime)
 
 	if (m_swrContext)
 	{
-		const uint8_t** in = const_cast<const uint8_t**>(audioFrame->frame->extended_data);
-		uint8_t** out = &m_pAudioFrameRwr;
-		int outCount = static_cast<int64_t>(wantedNumberSamples * m_audioParamTarget.freq / audioFrame->frame->sample_rate + 256);
-		int outSize = av_samples_get_buffer_size(NULL, m_audioParamTarget.channels, outCount, m_audioParamTarget.fmt, 0);
-		int len2;
+		const UINT8** in = const_cast<const UINT8**>(audioFrame->frame->extended_data);
+		UINT8** out = &m_pAudioFrameRwr;
+		INT32 outCount = static_cast<int64_t>(wantedNumberSamples * m_audioParamTarget.freq / audioFrame->frame->sample_rate + 256);
+		INT32 outSize = av_samples_get_buffer_size(NULL, m_audioParamTarget.channels, outCount, m_audioParamTarget.fmt, 0);
+		INT32 len2;
 		if (outSize < 0)
 		{
 			av_log(NULL, AV_LOG_ERROR, "av_samples_get_buffer_size() failed\n");
@@ -377,7 +378,7 @@ BOOL Audio::AudioResample(INT64 callbackTime)
 	}
 
 	if (!isnan(audioFrame->pts))
-		m_audioClock = audioFrame->pts + static_cast<double>(audioFrame->frame->nb_samples) / audioFrame->frame->sample_rate;
+		m_audioClock = audioFrame->pts + static_cast<DOUBLE>(audioFrame->frame->nb_samples) / audioFrame->frame->sample_rate;
 	else
 		m_audioClock = NAN;
 	m_audioClockSerial = audioFrame->serial;
@@ -441,7 +442,7 @@ BOOL Audio::DecodeThread(void* arg)
 	return is->OnDecodeThread();
 }
 
-void Audio::SDLAudioCallback(void* opaque, Uint8* stream, int len)
+void Audio::SDLAudioCallback(void* opaque, UINT8* stream, INT32 len)
 {
 	Audio* is = static_cast<Audio*>(opaque);
 	return is->OnSDLAudioCallback(stream, len);

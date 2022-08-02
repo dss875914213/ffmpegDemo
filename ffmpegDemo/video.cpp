@@ -63,7 +63,7 @@ void Video::Close()
 		SDL_DestroyWindow(m_sdlVideo.window); // 销毁窗口
 }
 
-void Video::TogglePause()
+void Video::Pause()
 {
 	// 取消暂停
 	m_frameTimer += av_gettime_relative() / 1000000.0 - m_videoPlayClock.lastUpdated;
@@ -87,7 +87,7 @@ double Video::GetClock(PlayClock* playClock)
 	}
 }
 
-void Video::SetClockAt(PlayClock* clock, double pts, int serial, double time)
+void Video::SetClockAt(PlayClock* clock, DOUBLE pts, INT32 serial, DOUBLE time)
 {
 	clock->pts = pts;	// 设置渲染时间
 	clock->lastUpdated = time;	// 设置上次更新时间
@@ -95,14 +95,14 @@ void Video::SetClockAt(PlayClock* clock, double pts, int serial, double time)
 	clock->serial = serial;	// 设置播放序列
 }
 
-void Video::SetClock(PlayClock* clock, double pts, int serial)
+void Video::SetClock(PlayClock* clock, DOUBLE pts, INT32 serial)
 {
 	// time 单位(ns)
 	double time = av_gettime_relative() / 1000000.0; // av_gettime_relative 获取自某个未指定起点以来的当前时间（以微秒为单位）
 	SetClockAt(clock, pts, serial, time);
 }
 
-void Video::InitClock(PlayClock* clock, int* queueSerial)
+void Video::InitClock(PlayClock* clock, INT32* queueSerial)
 {
 	clock->speed = 1.0;					// 设置播放速度
 	clock->paused = 0;					// 设置不暂停
@@ -110,7 +110,7 @@ void Video::InitClock(PlayClock* clock, int* queueSerial)
 	SetClock(clock, NAN, -1);
 }
 
-BOOL Video::QueuePicture(AVFrame* sourceFrame, double pts, double duration, int64_t pos)
+BOOL Video::QueuePicture(AVFrame* sourceFrame, DOUBLE pts, DOUBLE duration, INT64 pos)
 {
 	// 向队列尾部申请一个可写的帧空间，若无空间则等待
 	Frame* frame = FrameQueuePeekWritable(&m_frameQueue);
@@ -136,9 +136,9 @@ BOOL Video::QueuePicture(AVFrame* sourceFrame, double pts, double duration, int6
 	return TRUE;
 }
 
-int Video::DecodeFrame(AVCodecContext* pCodecContext, PacketQueue* pPacketQueue, AVFrame* frame)
+INT32 Video::DecodeFrame(AVCodecContext* pCodecContext, PacketQueue* pPacketQueue, AVFrame* frame)
 {
-	int ret;
+	INT32 ret;
 	while (1)
 	{
 		AVPacket pkt;
@@ -263,7 +263,7 @@ BOOL Video::OnPlayingThread()
 	return 0;
 }
 
-double Video::ComputeTargetDelay(double delay)
+double Video::ComputeTargetDelay(DOUBLE delay)
 {
 	double syncThreshold, diff = 0;
 	// 视频时钟与同步时钟的差异，时钟值是上一帧 pts 值（实为：上一帧pts+上一帧至今流逝的时间差）
@@ -305,7 +305,7 @@ double Video::VpDuration(Frame* vp, Frame* nextvp)
 		return 0.0;
 }
 
-void Video::UpdatePts(double pts, int serial)
+void Video::UpdatePts(DOUBLE pts, INT32 serial)
 {
 	SetClock(&m_videoPlayClock, pts, serial); // 更新 videoClock
 }
@@ -340,17 +340,17 @@ void Video::Display()
 	SDL_RenderPresent(m_sdlVideo.renderer);
 }
 
-void Video::Refresh(double* remainingTime)
+void Video::Refresh(DOUBLE* remainingTime)
 {
-	double time;
+	DOUBLE time;
 	// 是否是首帧
-	static bool firstFrame = true;
+	static BOOL firstFrame = TRUE;
 
 RETRY:
 	// 获取 frameQueue 中未显示的帧数
 	if (FrameQueueNumberRemaining(&m_frameQueue) == 0) // 所有帧已显示
 		return;
-	double lastDuration, duration, delay;
+	DOUBLE lastDuration, duration, delay;
 	Frame* vp, * lastvp;
 	lastvp = FrameQueuePeekLast(&m_frameQueue);  // 上一帧：上次已显示的帧
 	vp = FrameQueuePeek(&m_frameQueue); // 当前帧：当前帧显示的帧
@@ -358,7 +358,7 @@ RETRY:
 	if (firstFrame)
 	{
 		m_frameTimer = av_gettime_relative() / 1000000.0;
-		firstFrame = false;
+		firstFrame = FALSE;
 	}
 
 	// 暂停处理：不停播放上一帧图像
@@ -406,11 +406,11 @@ DISPLAY:
 
 int Video::OpenPlaying()
 {
-	int ret;
+	INT32 ret;
 	// 视频缓冲区大小
-	int bufferSize;
+	INT32 bufferSize;
 	// 视频缓冲区地址
-	uint8_t* buffer = NULL;
+	UINT8* buffer = NULL;
 	// 分配格式转换后的 frame
 	m_pFrameYUV = av_frame_alloc();
 	if (m_pFrameYUV == NULL)
@@ -423,7 +423,7 @@ int Video::OpenPlaying()
 	// 此处 bufferSize = width*height*1.5
 	bufferSize = av_image_get_buffer_size(AV_PIX_FMT_YUV420P, m_pCodecContext->width, m_pCodecContext->height, 1);
 	// 设置缓冲区空间
-	buffer = static_cast<uint8_t*>(av_malloc(bufferSize));
+	buffer = static_cast<UINT8*>(av_malloc(bufferSize));
 	if (buffer == NULL)
 	{
 		cout << "av_malloc() for buffer failed" << endl;
@@ -485,7 +485,7 @@ int Video::OpenPlaying()
 	return 0;
 }
 
-int Video::OpenStream()
+INT32 Video::OpenStream()
 {
 	// 编解码参数
 	AVCodecParameters* pCodecPar = NULL;
@@ -495,7 +495,7 @@ int Video::OpenStream()
 	AVCodecContext* pCodecContext = NULL;
 	// 视频流
 	AVStream* pStream = m_pStream;
-	int ret;
+	INT32 ret;
 	// 1.为视频流构建解码器 AVCodecContext
 	// 1.1 获取解码器参数 AVCodecParameters
 	pCodecPar = pStream->codecpar;

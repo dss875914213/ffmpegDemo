@@ -3,7 +3,6 @@
 Player::Player():
 	m_stop(FALSE),
 	m_pause(FALSE),
-	m_step(FALSE),
 	m_demux(NULL),
 	m_video(NULL),
 	m_audio(NULL)
@@ -15,7 +14,7 @@ Player::~Player()
 	
 }
 
-int Player::PlayerRunning(const char* pInputFile)
+int Player::Play(const char* pInputFile)
 {
 	SAFE_DELETE(m_demux);
 	SAFE_DELETE(m_video);
@@ -30,7 +29,7 @@ int Player::PlayerRunning(const char* pInputFile)
 	if (!bRes)
 	{
 		cout << "player init failed" << endl;
-		DoExit();  // 开始退出
+		Stop();  // 开始退出
 	}
 	
 	m_demux->Open();		// 打开多路复用器，并创建线程用于解封装
@@ -56,14 +55,14 @@ int Player::PlayerRunning(const char* pInputFile)
 			if (event.key.keysym.sym == SDLK_ESCAPE)
 			{
 				// 开始退出
-				DoExit();
+				Stop();
 				break;
 			}
 			switch (event.key.keysym.sym)
 			{
 			case SDLK_SPACE:
 				// 切换暂停
-				TogglePause();
+				Pause();
 				break;
 			case SDL_WINDOWEVENT:
 				break;
@@ -73,7 +72,7 @@ int Player::PlayerRunning(const char* pInputFile)
 			break;
 		case SDL_QUIT:
 		case FF_QUIT_EVENT:
-			DoExit();
+			Stop();
 			break;
 
 		default:
@@ -126,15 +125,12 @@ BOOL Player::PlayerInit(string pInputFile)
 int Player::PlayerDeinit()
 {
 	m_stop = TRUE;
-	cout << "PlayerDeinit start" << endl;
 	if (m_video)
 	{
 		m_video->Close();
 		delete m_video;
 		m_video = NULL;
 	}
-
-	cout << "video closed" << endl;
 
 	if (m_audio)
 	{
@@ -143,30 +139,25 @@ int Player::PlayerDeinit()
 		m_audio = NULL;
 	}
 
-	cout << "audio closed" << endl;
-
-	
 	if (m_demux)
 	{
 		m_demux->Close();
 		delete m_demux;
 		m_demux = NULL;
 	}
-	cout << "PlayerDeinit end" << endl;
 	return 0;
 }
 
-void Player::DoExit()
+void Player::Stop()
 {
 	PlayerDeinit(); // 播放器反初始化
 	avformat_network_deinit();	// 撤销 avformat_network_init 的初始化
 	SDL_Quit(); // 退出 SDL
 	exit(0);	// 退出系统
 }
-void Player::TogglePause()
+void Player::Pause()
 {
 	if (m_pause)
-		m_video->TogglePause();
+		m_video->Pause();
 	m_pause = !m_pause;
-	m_step = FALSE;
 }

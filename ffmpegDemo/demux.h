@@ -19,14 +19,14 @@ public:
 
 private:
 	BOOL					IsStop();	// 是否停止
-	BOOL					StreamHasEnoughPackets(AVStream* stream, int streamIndex, PacketQueue* queue);
+	BOOL					StreamHasEnoughPackets(AVStream* stream, INT32 streamIndex, PacketQueue* queue);
 	static BOOL				DemuxThread(void* mux);
-	static int				DecodeInterruptCallback(void* context);
+	static INT32			DecodeInterruptCallback(void* context);
 
 private:
 	AVFormatContext*	m_pFormatContext;		// 流媒体解析上下文
-	int					m_audioIndex;			// 音频流索引
-	int					m_videoIndex;			// 视频流索引
+	INT32				m_audioIndex;			// 音频流索引
+	INT32				m_videoIndex;			// 视频流索引
 
 	Player*				m_player;				// 播放器
 	PacketQueue			m_audioPacketQueue;		// 音频未解码帧队列

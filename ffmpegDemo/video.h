@@ -11,29 +11,29 @@ public:
 	BOOL			Init(PacketQueue* videoPacketQueue, Player* player);	// 初始化
 	BOOL			Open();	// 创建线程
 	void			Close();	// 关闭
-	void			TogglePause();
+	void			Pause();
 private:
-	void			InitClock(PlayClock* clock, int* queueSerial);
+	void			InitClock(PlayClock* clock, INT32* queueSerial);
 	double			GetClock(PlayClock* clock);
-	void			SetClockAt(PlayClock* clock, double pts, int serial, double time);
-	void			SetClock(PlayClock* clock, double pts, int serial);
+	void			SetClockAt(PlayClock* clock, DOUBLE pts, INT32 serial, DOUBLE time);
+	void			SetClock(PlayClock* clock, DOUBLE pts, INT32 serial);
 
 	int				OpenPlaying();
 	int				OpenStream();
 
-	double			ComputeTargetDelay(double delay);
+	double			ComputeTargetDelay(DOUBLE delay);
 	double			VpDuration(Frame* vp, Frame* nextvp);
-	void			UpdatePts(double pts, int serial);
+	void			UpdatePts(DOUBLE pts, INT32 serial);
 
 	BOOL			OnDecodeThread();
 	BOOL			OnPlayingThread();
 	static BOOL		DecodeThread(void* arg);
 	static BOOL		PlayingThread(void* arg);
 
-	void			Refresh(double* remainingTime);
+	void			Refresh(DOUBLE* remainingTime);
 	void			Display();
-	BOOL			QueuePicture(AVFrame* sourceFrame, double pts, double duration, int64_t pos);
-	int				DecodeFrame(AVCodecContext* pCodecContext, PacketQueue* pPacketQueue, AVFrame* frame);
+	BOOL			QueuePicture(AVFrame* sourceFrame, DOUBLE pts, DOUBLE duration, INT64 pos);
+	INT32			DecodeFrame(AVCodecContext* pCodecContext, PacketQueue* pPacketQueue, AVFrame* frame);
 
 private:
 	Player*				m_player;
@@ -42,7 +42,7 @@ private:
 	AVStream*			m_pStream;				// 视频流
 	AVCodecContext*		m_pCodecContext;		// 视频编码器上下文	
 	PlayClock			m_videoPlayClock;		// 视频播放时钟
-	double				m_frameTimer;			// 当前帧开始播放的时间
+	DOUBLE				m_frameTimer;			// 当前帧开始播放的时间
 	
 	FrameQueue			m_frameQueue;			// 视频解码帧队列
 	SwsContext*			m_swsContext;			// 视频转换上下文

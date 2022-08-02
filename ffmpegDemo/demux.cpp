@@ -148,7 +148,7 @@ AVStream* FFDemux::GetStream(BOOL isVideo)
 		return m_pFormatContext->streams[m_audioIndex];
 }
 
-BOOL FFDemux::StreamHasEnoughPackets(AVStream* stream, int streamIndex, PacketQueue* queue)
+BOOL FFDemux::StreamHasEnoughPackets(AVStream* stream, INT32 streamIndex, PacketQueue* queue)
 {
 	return streamIndex<0 ||
 		queue->abortRequest ||
@@ -228,7 +228,7 @@ BOOL FFDemux::DemuxThread(void* is)
 	return 0;
 }
 
-int FFDemux::DecodeInterruptCallback(void* context)
+INT32 FFDemux::DecodeInterruptCallback(void* context)
 {
 	FFDemux* is = static_cast<FFDemux*>(context);
 	return is->IsStop();

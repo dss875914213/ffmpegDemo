@@ -18,11 +18,12 @@ class Player
 public:
 	Player();
 	~Player();
-	int			PlayerRunning(const char* pInputFile);
-	void		TogglePause();
+	int			Play(const char* pInputFile);
+	void		Pause();
+	void		Stop();
+
 	BOOL		IsPause();
 	BOOL		IsStop();
-	void		DoExit();
 	FFDemux*	GetDemux();
 	Audio*		GetAudio();
 private:
@@ -31,7 +32,6 @@ private:
 private:
 	BOOL		m_stop;
 	BOOL		m_pause;
-	BOOL		m_step;
 
 	FFDemux*	m_demux;
 	Video*		m_video;

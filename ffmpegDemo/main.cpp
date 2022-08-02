@@ -11,7 +11,7 @@ int main(int argc, char* argv[])
 	}
 	//cout << "Try playing " << argv[1] << "..."<<endl;
 	Player* player = new Player();
-	player->PlayerRunning(argv[1]);
+	player->Play(argv[1]);
 	delete player;
 	return 0;
 }
