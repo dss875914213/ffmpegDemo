@@ -34,7 +34,7 @@ BOOL Video::Init(PacketQueue* videoPacketQueue, Player* player)
 	if (FrameQueueInit(&m_frameQueue, videoPacketQueue, VIDEO_PICTURE_QUEUE_SIZE, 1) < 0)
 		return FALSE;
 	m_player = player;
-	InitClock(&m_videoPlayClock, &m_packetQueue->serial);
+	InitClock(&m_videoPlayClock);
 	m_audioPlayClock = player->GetAudio()->GetClock();
 	m_pStream = player->GetDemux()->GetStream(TRUE);
 	return TRUE;
@@ -67,14 +67,12 @@ void Video::Pause()
 {
 	// 取消暂停
 	m_frameTimer += av_gettime_relative() / 1000000.0 - m_videoPlayClock.lastUpdated;
-	SetClock(&m_videoPlayClock, GetClock(&m_videoPlayClock), m_videoPlayClock.serial);
+	SetClock(&m_videoPlayClock, GetClock(&m_videoPlayClock));
 }
 
 double Video::GetClock(PlayClock* playClock)
 {
-	if (*playClock->queueSerial != playClock->serial)
-		return NAN;
-	if (playClock->paused)
+	if (m_player->IsPause())
 		return playClock->pts;
 	else
 	{
@@ -87,27 +85,24 @@ double Video::GetClock(PlayClock* playClock)
 	}
 }
 
-void Video::SetClockAt(PlayClock* clock, DOUBLE pts, INT32 serial, DOUBLE time)
+void Video::SetClockAt(PlayClock* clock, DOUBLE pts, DOUBLE time)
 {
 	clock->pts = pts;	// 设置渲染时间
 	clock->lastUpdated = time;	// 设置上次更新时间
 	clock->ptsDrift = clock->pts - time;	// 当前帧显示时间戳与当前系统时钟时间的差值
-	clock->serial = serial;	// 设置播放序列
 }
 
-void Video::SetClock(PlayClock* clock, DOUBLE pts, INT32 serial)
+void Video::SetClock(PlayClock* clock, DOUBLE pts)
 {
 	// time 单位(ns)
 	double time = av_gettime_relative() / 1000000.0; // av_gettime_relative 获取自某个未指定起点以来的当前时间（以微秒为单位）
-	SetClockAt(clock, pts, serial, time);
+	SetClockAt(clock, pts, time);
 }
 
-void Video::InitClock(PlayClock* clock, INT32* queueSerial)
+void Video::InitClock(PlayClock* clock)
 {
 	clock->speed = 1.0;					// 设置播放速度
-	clock->paused = 0;					// 设置不暂停
-	clock->queueSerial = queueSerial;	// 设置播放序列
-	SetClock(clock, NAN, -1);
+	SetClock(clock, NAN);
 }
 
 BOOL Video::QueuePicture(AVFrame* sourceFrame, DOUBLE pts, DOUBLE duration, INT64 pos)
@@ -293,21 +288,16 @@ double Video::ComputeTargetDelay(DOUBLE delay)
 
 double Video::VpDuration(Frame* vp, Frame* nextvp)
 {
-	if (vp->serial == nextvp->serial)
-	{
-		double duration = nextvp->pts - vp->pts;
-		if (isnan(duration) || duration <= 0)
-			return vp->duration;
-		else
-			return duration;
-	}
+	double duration = nextvp->pts - vp->pts;
+	if (isnan(duration) || duration <= 0)
+		return vp->duration;
 	else
-		return 0.0;
+		return duration;
 }
 
-void Video::UpdatePts(DOUBLE pts, INT32 serial)
+void Video::UpdatePts(DOUBLE pts)
 {
-	SetClock(&m_videoPlayClock, pts, serial); // 更新 videoClock
+	SetClock(&m_videoPlayClock, pts); // 更新 videoClock
 }
 
 void Video::Display()
@@ -382,7 +372,7 @@ RETRY:
 		m_frameTimer = time;
 	SDL_LockMutex(m_frameQueue.mutex);
 	if (!isnan(vp->pts))
-		UpdatePts(vp->pts, vp->serial); // 更新视频时钟：时间戳、时钟时间
+		UpdatePts(vp->pts); // 更新视频时钟：时间戳、时钟时间
 	SDL_UnlockMutex(m_frameQueue.mutex);
 
 	// 是否要丢弃未能及时播放的视频帧

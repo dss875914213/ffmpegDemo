@@ -56,13 +56,13 @@ void FrameQueueSignal(FrameQueue* frameQueue)
 // 获取当前帧
 Frame* FrameQueuePeek(FrameQueue* frameQueue)
 {
-	return &frameQueue->queue[(frameQueue->rindex + frameQueue->rindexShown) % frameQueue->maxSize];
+	return &frameQueue->queue[(frameQueue->rindex + frameQueue->bShown) % frameQueue->maxSize];
 }
 
 // 下一帧
 Frame* FrameQueuePeekNext(FrameQueue* frameQueue)
 {
-	return &frameQueue->queue[(frameQueue->rindex + frameQueue->rindexShown + 1) % frameQueue->maxSize];
+	return &frameQueue->queue[(frameQueue->rindex + frameQueue->bShown + 1) % frameQueue->maxSize];
 }
 
 // 取出此帧进行播放，只读取不删除
@@ -78,7 +78,7 @@ Frame* FrameQueuePeekWritable(FrameQueue* frameQueue)
 	while (frameQueue->size >= frameQueue->maxSize &&
 		!frameQueue->packetQueue->abortRequest)
 	{
-		// TODO 为什么不直接写等待呢，为什么要加互斥量； 互斥量把锁放开，且其他地方可以提前发送信号，不用等待
+		// 互斥量把锁放开，且其他地方可以提前发送信号，不用等待
 		SDL_CondWait(frameQueue->cond, frameQueue->mutex);
 	}
 	SDL_UnlockMutex(frameQueue->mutex);
@@ -91,7 +91,7 @@ Frame* FrameQueuePeekWritable(FrameQueue* frameQueue)
 Frame* FrameQueuePeekReadable(FrameQueue* frameQueue)
 {
 	SDL_LockMutex(frameQueue->mutex);
-	while (frameQueue->size - frameQueue->rindexShown <= 0 &&
+	while (frameQueue->size - frameQueue->bShown <= 0 &&
 		!frameQueue->packetQueue->abortRequest)
 	{
 		SDL_CondWait(frameQueue->cond, frameQueue->mutex);
@@ -99,7 +99,7 @@ Frame* FrameQueuePeekReadable(FrameQueue* frameQueue)
 	SDL_UnlockMutex(frameQueue->mutex);
 	if (frameQueue->packetQueue->abortRequest)
 		return NULL;
-	return &frameQueue->queue[(frameQueue->rindex + frameQueue->rindexShown) % frameQueue->maxSize];
+	return &frameQueue->queue[(frameQueue->rindex + frameQueue->bShown) % frameQueue->maxSize];
 }
 
 // 向队列尾部压入一帧，只更新计数与写指针，因此调用此函数前应将帧数据写入队列相应位置
@@ -119,9 +119,9 @@ void FrameQueuePush(FrameQueue* frameQueue)
 void FrameQueueNext(FrameQueue* frameQueue)
 {
 	// 用于第一次删帧时，不删保留上一帧，用与对比
-	if (frameQueue->keepLast && !frameQueue->rindexShown)
+	if (frameQueue->keepLast && !frameQueue->bShown)
 	{
-		frameQueue->rindexShown = 1;
+		frameQueue->bShown = 1;
 		return;
 	}
 
@@ -140,13 +140,13 @@ void FrameQueueNext(FrameQueue* frameQueue)
 int FrameQueueNumberRemaining(FrameQueue* frameQueue)
 {
 	// 当前显示的帧，还未从队列中删去
-	return frameQueue->size - frameQueue->rindexShown;
+	return frameQueue->size - frameQueue->bShown;
 }
 
 int64_t FrameQueueLastPosition(FrameQueue* frameQueue)
 {
 	Frame* frame = &frameQueue->queue[frameQueue->rindex];
-	if (frameQueue->rindexShown && frame->serial == frameQueue->packetQueue->serial)
+	if (frameQueue->bShown)
 		return frame->pos;
 	else
 		return -1;

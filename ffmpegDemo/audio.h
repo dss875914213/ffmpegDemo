@@ -12,9 +12,9 @@ public:
 	void			Close();	// 关闭
 	PlayClock*		GetClock();	// 获得时间，用于同步
 private:
-	void			InitClock(PlayClock* clock, INT32* queueSerial);
-	void			SetClockAt(PlayClock* clock, DOUBLE pts, INT32 serial, DOUBLE time);
-	void			SetClock(PlayClock* clock, DOUBLE pts, INT32 serial);
+	void			InitClock(PlayClock* clock);
+	void			SetClockAt(PlayClock* clock, DOUBLE pts, DOUBLE time);
+	void			SetClock(PlayClock* clock, DOUBLE pts);
 
 	BOOL			OpenAudioStream();
 	BOOL			OpenAudioPlaying();
@@ -44,7 +44,6 @@ private:
 	INT32				m_audioCopyIndex;				// 当前音频帧中已拷入 SDL 音频缓冲区的位置索引
 	INT32				m_audioWriteBufferSize;			// 当前音频帧中尚未拷入 SDL 音频缓冲区的数据量 audioFrameSize = audioCopyIndex+audioWriteBufferSize
 	DOUBLE				m_audioClock;					// 音频时钟(当前帧播放结束的时间？)
-	INT32				m_audioClockSerial;
 	SDL_Thread*			m_decodeThread;					// 音频解码线程
 	AVCodecContext*		m_pAudioCodecContext;			// 音频编码器上下文
 	SDL_AudioDeviceID	m_audioDevice;

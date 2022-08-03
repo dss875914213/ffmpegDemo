@@ -16,8 +16,7 @@ Audio::Audio()
 	m_audioFrameSize(0),
 	m_audioCopyIndex(0),
 	m_audioWriteBufferSize(0),
-	m_audioClock(0),
-	m_audioClockSerial(0)
+	m_audioClock(0)
 {
 	ZeroMemory(&m_frameQueue, sizeof(m_frameQueue));
 	ZeroMemory(&m_audioParamSource, sizeof(m_audioParamSource));
@@ -30,7 +29,7 @@ BOOL Audio::Init(PacketQueue* pPacketQueue, Player* player)
 	if (FrameQueueInit(&m_frameQueue, pPacketQueue, SAMPLE_QUEUE_SIZE, 1) < 0)
 		return FALSE;
 	m_player = player;
-	InitClock(&m_audioPlayClock, &m_packetQueue->serial);
+	InitClock(&m_audioPlayClock);
 	m_pStream = player->GetDemux()->GetStream(FALSE);
 	return TRUE;
 }
@@ -95,27 +94,24 @@ END:
 	return ret;
 }
 
-void Audio::SetClockAt(PlayClock* clock, DOUBLE pts, INT32 serial, DOUBLE time)
+void Audio::SetClockAt(PlayClock* clock, DOUBLE pts, DOUBLE time)
 {
 	clock->pts = pts;	// 设置渲染时间
 	clock->lastUpdated = time;	// 设置上次更新时间
 	clock->ptsDrift = clock->pts - time;	// 当前帧显示时间戳与当前系统时钟时间的差值
-	clock->serial = serial;	// 设置播放序列
 }
 
-void Audio::SetClock(PlayClock* clock, DOUBLE pts, INT32 serial)
+void Audio::SetClock(PlayClock* clock, DOUBLE pts)
 {
 	// time 单位(ns)
 	double time = av_gettime_relative() / 1000000.0; // av_gettime_relative 获取自某个未指定起点以来的当前时间（以微秒为单位）
-	SetClockAt(clock, pts, serial, time);
+	SetClockAt(clock, pts, time);
 }
 
-void Audio::InitClock(PlayClock* clock, INT32* queueSerial)
+void Audio::InitClock(PlayClock* clock)
 {
 	clock->speed = 1.0;					// 设置播放速度
-	clock->paused = 0;					// 设置不暂停
-	clock->queueSerial = queueSerial;	// 设置播放序列
-	SetClock(clock, NAN, -1);
+	SetClock(clock, NAN);
 }
 
 void Audio::OnSDLAudioCallback(Uint8* stream, INT32 len)
@@ -164,10 +160,11 @@ void Audio::OnSDLAudioCallback(Uint8* stream, INT32 len)
 	// 3.更新时钟
 	if (!isnan(m_audioClock))
 	{
+		// -DSS TODO 这个 clock 是不是要加锁
 		// 更新音频时钟，更新时刻：每次往声卡缓冲区拷入数据后
 		// 前面 audioDecodeFrame 中更新的 is->audioClock 是以音频帧为单位，所以此处第二个参数要减去未拷贝数据量占用的时间
 		SetClockAt(&m_audioPlayClock, m_audioClock - static_cast<DOUBLE>(2 * m_audioHardwareBufferSize + m_audioWriteBufferSize) /
-			m_audioParamTarget.bytesPerSec, m_audioClockSerial, audioCallbackTime / 1000000.0);
+			m_audioParamTarget.bytesPerSec, audioCallbackTime / 1000000.0);
 	}
 }
 
@@ -310,6 +307,7 @@ BOOL Audio::AudioResample(INT64 callbackTime)
 		static_cast<AVSampleFormat>(audioFrame->frame->format), 1);
 
 	// 获取声道布局
+	// 判断 frame 保存的 channel_layout 和 channels 是否对应
 	decodeChannelLayout = (audioFrame->frame->channel_layout &&
 		audioFrame->frame->channels == av_get_channel_layout_nb_channels(audioFrame->frame->channel_layout)) ?
 		audioFrame->frame->channel_layout : av_get_default_channel_layout(audioFrame->frame->channels);
@@ -381,7 +379,6 @@ BOOL Audio::AudioResample(INT64 callbackTime)
 		m_audioClock = audioFrame->pts + static_cast<DOUBLE>(audioFrame->frame->nb_samples) / audioFrame->frame->sample_rate;
 	else
 		m_audioClock = NAN;
-	m_audioClockSerial = audioFrame->serial;
 	return resampledDataSize;
 }
 

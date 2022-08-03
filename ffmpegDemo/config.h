@@ -44,9 +44,6 @@ typedef struct
 	double ptsDrift;		// 当前帧显示时间戳与当前系统时钟时间的差值
 	double lastUpdated;		// 当前时钟，最后一次更新时间
 	double speed;			// 时钟速度控制，用于控制播放速度
-	int serial;				// 播放序列，一个 seek 操作会启动一段新的播放序列
-	int paused;				// 暂停标志
-	int* queueSerial;		// 指向 packet_serial
 }PlayClock;
 
 typedef struct
@@ -75,7 +72,6 @@ typedef struct
 	int size;					// 
 	int64_t duration;			// 持续播放时间
 	int abortRequest;			// 停止请求
-	int serial;					// 播放序列
 	SDL_mutex* mutex;			// 互斥锁
 	SDL_cond* cond;				// 条件变量
 }PacketQueue;
@@ -83,7 +79,6 @@ typedef struct
 typedef struct
 {
 	AVFrame* frame;		// 解码后数据
-	int serial;
 	double pts;			// 渲染时间
 	double duration;	// 渲染持续时间
 	int64_t pos;		// frame 对应 packet 在输入文件中的地址偏移
@@ -101,7 +96,7 @@ typedef struct
 	int windex;						// 写索引
 	int maxSize;					// 队列中可存储解码数据最大帧数
 	int keepLast;					// 是否保存上一帧数据
-	int rindexShown;				// 当前是否有帧在显示
+	int bShown;						// 当前是否有帧在显示
 	int size;						// 总帧数
 	SDL_mutex* mutex;				// 互斥锁
 	SDL_cond* cond;					// 条件变量

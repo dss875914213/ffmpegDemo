@@ -150,6 +150,7 @@ AVStream* FFDemux::GetStream(BOOL isVideo)
 
 BOOL FFDemux::StreamHasEnoughPackets(AVStream* stream, INT32 streamIndex, PacketQueue* queue)
 {
+	// -DSS TODO 使用 abortRequest 没有加锁
 	return streamIndex<0 ||
 		queue->abortRequest ||
 		(stream->disposition & AV_DISPOSITION_ATTACHED_PIC) ||
@@ -171,8 +172,6 @@ BOOL FFDemux::DemuxThread(void* is)
 	while (1)
 	{
 		// -DSS TODO 解析完，这个线程是不是也要退出
-
-
 		if (demux->IsStop())
 			break;
 		// 如果未解码队列中数据足够多，则循环等待

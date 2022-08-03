@@ -13,17 +13,17 @@ public:
 	void			Close();	// ¹Ø±Õ
 	void			Pause();
 private:
-	void			InitClock(PlayClock* clock, INT32* queueSerial);
+	void			InitClock(PlayClock* clock);
 	double			GetClock(PlayClock* clock);
-	void			SetClockAt(PlayClock* clock, DOUBLE pts, INT32 serial, DOUBLE time);
-	void			SetClock(PlayClock* clock, DOUBLE pts, INT32 serial);
+	void			SetClockAt(PlayClock* clock, DOUBLE pts, DOUBLE time);
+	void			SetClock(PlayClock* clock, DOUBLE pts);
 
 	int				OpenPlaying();
 	int				OpenStream();
 
 	double			ComputeTargetDelay(DOUBLE delay);
 	double			VpDuration(Frame* vp, Frame* nextvp);
-	void			UpdatePts(DOUBLE pts, INT32 serial);
+	void			UpdatePts(DOUBLE pts);
 
 	BOOL			OnDecodeThread();
 	BOOL			OnPlayingThread();
