@@ -43,7 +43,6 @@ typedef struct
 	double pts;				// 当前帧渲染时间戳
 	double ptsDrift;		// 当前帧显示时间戳与当前系统时钟时间的差值
 	double lastUpdated;		// 当前时钟，最后一次更新时间
-	double speed;			// 时钟速度控制，用于控制播放速度
 }PlayClock;
 
 typedef struct
@@ -81,7 +80,6 @@ typedef struct
 	AVFrame* frame;		// 解码后数据
 	double pts;			// 渲染时间
 	double duration;	// 渲染持续时间
-	int64_t pos;		// frame 对应 packet 在输入文件中的地址偏移
 	int width;			// 宽度
 	int height;			// 高度
 	int format;			// 格式

@@ -70,7 +70,7 @@ void Video::Pause()
 	SetClock(&m_videoPlayClock, GetClock(&m_videoPlayClock));
 }
 
-double Video::GetClock(PlayClock* playClock)
+DOUBLE Video::GetClock(PlayClock* playClock)
 {
 	if (m_player->IsPause())
 		return playClock->pts;
@@ -101,11 +101,10 @@ void Video::SetClock(PlayClock* clock, DOUBLE pts)
 
 void Video::InitClock(PlayClock* clock)
 {
-	clock->speed = 1.0;					// 设置播放速度
 	SetClock(clock, NAN);
 }
 
-BOOL Video::QueuePicture(AVFrame* sourceFrame, DOUBLE pts, DOUBLE duration, INT64 pos)
+BOOL Video::QueuePicture(AVFrame* sourceFrame, DOUBLE pts, DOUBLE duration)
 {
 	// 向队列尾部申请一个可写的帧空间，若无空间则等待
 	Frame* frame = FrameQueuePeekWritable(&m_frameQueue);
@@ -120,7 +119,6 @@ BOOL Video::QueuePicture(AVFrame* sourceFrame, DOUBLE pts, DOUBLE duration, INT6
 
 	frame->pts = pts; // 经过时间基转换后的渲染时间戳
 	frame->duration = duration; // 渲染持续时间   帧率 分母/ 分子
-	frame->pos = pos; // frame 对应 packet 在输入文件中的地址偏移
 
 	// 将 AVFrame 拷入队列相应位置
 	// 改变 data 指针的指向
@@ -201,16 +199,9 @@ INT32 Video::DecodeFrame(AVCodecContext* pCodecContext, PacketQueue* pPacketQueu
 
 BOOL Video::OnDecodeThread()
 {
-	// 分配 frame 空间, buffer 空间需要重新分配
-	AVFrame* pFrame = av_frame_alloc();
-	double pts;
-	double duration;
-	int ret;
-	int gotPicture;
-	// 时间基
-	AVRational timebase = m_pStream->time_base;
-	// 猜测帧率
-	AVRational frameRate = av_guess_frame_rate(m_pFormatContext, m_pStream, NULL);
+	AVFrame* pFrame = av_frame_alloc();  // 分配 frame 空间, buffer 空间需要重新分配
+	AVRational timebase = m_pStream->time_base;  // 时间基
+	AVRational frameRate = av_guess_frame_rate(m_pFormatContext, m_pStream, NULL);  // 猜测帧率
 	if (pFrame == NULL)
 	{
 		av_log(NULL, AV_LOG_ERROR, "av_frame_alloc() for pFrame failed\n");
@@ -223,13 +214,13 @@ BOOL Video::OnDecodeThread()
 		if (m_player->IsStop())
 			break;
 		// 从 packet_queue 中取一个 packet, 解码生成 frame
-		gotPicture = DecodeFrame(m_pCodecContext, m_packetQueue, pFrame);
-		if (gotPicture < 0)
+		if (DecodeFrame(m_pCodecContext, m_packetQueue, pFrame) < 0)
 			goto EXIT;
-		duration = (frameRate.num && frameRate.den ? av_q2d(AVRational{ frameRate.den, frameRate.num }) : 0);// 当前帧播放时长 帧率 分母/分子
-		pts = (pFrame->pts == AV_NOPTS_VALUE) ? NAN : pFrame->pts * av_q2d(timebase); // 当前显示时间戳
+		DOUBLE duration = (frameRate.num && frameRate.den ? av_q2d(AVRational{ frameRate.den, frameRate.num }) : 0);// 当前帧播放时长 帧率 分母/分子
+		// 换算到真实时间
+		DOUBLE pts = (pFrame->pts == AV_NOPTS_VALUE) ? NAN : pFrame->pts * av_q2d(timebase); // 当前显示时间戳
 		// 将解码后数据，放入解码后队列
-		ret = QueuePicture(pFrame, pts, duration, pFrame->pkt_pos); // 将当前帧压入 frameQueue
+		INT32 ret = QueuePicture(pFrame, pts, duration); // 将当前帧压入 frameQueue
 		// av_frame_unref，它的作用是释放音视频数据资源，并给 frame 设置初值
 		av_frame_unref(pFrame);
 		if (ret < 0)
@@ -355,6 +346,7 @@ RETRY:
 	if (m_player->IsPause())
 		goto DISPLAY;
 	lastDuration = VpDuration(lastvp, vp); // 上一帧理论播放时长：vp->pts - lastvp->pts
+	// 计算和音频播放的差值
 	delay = ComputeTargetDelay(lastDuration); // 根据视频时钟和同步时钟的差值，计算 delay 值
 	time = av_gettime_relative() / 1000000.0;
 	// 当前帧播放时刻(is->frame_timer + delay) 大于当前时刻 (time), 表示播放时刻未到
@@ -394,15 +386,12 @@ DISPLAY:
 	Display(); // 取出当前帧 vp(若有丢帧是 nextvp)进行播放
 }
 
-int Video::OpenPlaying()
+INT32 Video::OpenPlaying()
 {
 	INT32 ret;
-	// 视频缓冲区大小
-	INT32 bufferSize;
-	// 视频缓冲区地址
-	UINT8* buffer = NULL;
-	// 分配格式转换后的 frame
-	m_pFrameYUV = av_frame_alloc();
+	INT32 bufferSize;		// 视频缓冲区大小
+	UINT8* buffer = NULL;	// 视频缓冲区地址
+	m_pFrameYUV = av_frame_alloc();  // 分配格式转换后的 frame
 	if (m_pFrameYUV == NULL)
 	{
 		cout << "av_frame_alloc() for p_frm_raw failed" << endl;
@@ -477,18 +466,13 @@ int Video::OpenPlaying()
 
 INT32 Video::OpenStream()
 {
-	// 编解码参数
-	AVCodecParameters* pCodecPar = NULL;
-	// 编解码器
-	AVCodec* pCodec = NULL;
-	// 编解码器上下文
-	AVCodecContext* pCodecContext = NULL;
-	// 视频流
-	AVStream* pStream = m_pStream;
+	AVCodecParameters* pCodecPar = NULL;  // 编解码参数
+	AVCodec* pCodec = NULL;  // 编解码器
+	AVCodecContext* pCodecContext = NULL;  // 编解码器上下文
 	INT32 ret;
 	// 1.为视频流构建解码器 AVCodecContext
 	// 1.1 获取解码器参数 AVCodecParameters
-	pCodecPar = pStream->codecpar;
+	pCodecPar = m_pStream->codecpar;
 
 	// 1.2 获取解码器
 	pCodec = const_cast<AVCodec*>(avcodec_find_decoder(pCodecPar->codec_id));

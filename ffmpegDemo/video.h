@@ -14,12 +14,12 @@ public:
 	void			Pause();
 private:
 	void			InitClock(PlayClock* clock);
-	double			GetClock(PlayClock* clock);
+	DOUBLE			GetClock(PlayClock* clock);
 	void			SetClockAt(PlayClock* clock, DOUBLE pts, DOUBLE time);
 	void			SetClock(PlayClock* clock, DOUBLE pts);
 
-	int				OpenPlaying();
-	int				OpenStream();
+	INT32			OpenPlaying();
+	INT32			OpenStream();
 
 	double			ComputeTargetDelay(DOUBLE delay);
 	double			VpDuration(Frame* vp, Frame* nextvp);
@@ -32,7 +32,7 @@ private:
 
 	void			Refresh(DOUBLE* remainingTime);
 	void			Display();
-	BOOL			QueuePicture(AVFrame* sourceFrame, DOUBLE pts, DOUBLE duration, INT64 pos);
+	BOOL			QueuePicture(AVFrame* sourceFrame, DOUBLE pts, DOUBLE duration);
 	INT32			DecodeFrame(AVCodecContext* pCodecContext, PacketQueue* pPacketQueue, AVFrame* frame);
 
 private:

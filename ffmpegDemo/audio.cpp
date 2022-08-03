@@ -5,7 +5,7 @@
 Audio::Audio()
 	:m_swrContext(NULL),
 	m_pAudioFrame(NULL),
-	m_pAudioFrameRwr(NULL),
+	m_pAudioFrameRwrBuffer(NULL),
 	m_pAudioCodecContext(NULL),
 	m_player(NULL),
 	m_packetQueue(NULL),
@@ -15,7 +15,6 @@ Audio::Audio()
 	m_audioHardwareBufferSize(0),
 	m_audioFrameSize(0),
 	m_audioCopyIndex(0),
-	m_audioWriteBufferSize(0),
 	m_audioClock(0)
 {
 	ZeroMemory(&m_frameQueue, sizeof(m_frameQueue));
@@ -79,9 +78,8 @@ BOOL Audio::OnDecodeThread()
 		timebase = AVRational{ 1, pFrame->sample_rate };
 		if (!(audioFrame = FrameQueuePeekWritable(&m_frameQueue)))
 			goto END;
-		// TODO 为什么要先除以 timebase 再乘以 timebase
+		// 里面只是时间基的换算。这里是换算到真实时间
 		audioFrame->pts = (pFrame->pts == AV_NOPTS_VALUE) ? NAN : pFrame->pts * av_q2d(timebase);
-		audioFrame->pos = pFrame->pkt_pos;
 		// 当前帧包含的（单个声道）采样数/采样率就是当前帧的播放时长
 		audioFrame->duration = av_q2d(AVRational{ pFrame->nb_samples, pFrame->sample_rate });
 		// 将 frame 数据拷入 audioFrame->frame，audioFrame->frame指向音频 frame 队列尾部
@@ -110,27 +108,26 @@ void Audio::SetClock(PlayClock* clock, DOUBLE pts)
 
 void Audio::InitClock(PlayClock* clock)
 {
-	clock->speed = 1.0;					// 设置播放速度
 	SetClock(clock, NAN);
 }
 
-void Audio::OnSDLAudioCallback(Uint8* stream, INT32 len)
+void Audio::OnSDLAudioCallback(UINT8* stream, INT32 needSize)
 {
-	int audioSize, len1;
 	// 回调开始的时间
-	int64_t audioCallbackTime = av_gettime_relative();
+	INT64 audioCallbackTime = av_gettime_relative();
 
 	if (m_player->IsPause())
 	{
-		memset(stream, 0, len);
+		memset(stream, 0, needSize);
 		return;
 	}
-	while (len > 0)
+	while (needSize > 0)
 	{
+		// 索引超出范围，则去获取新数据
 		if (m_audioCopyIndex >= static_cast<INT32>(m_audioFrameSize))
 		{
 			// 1.从音频 frame 队列中取出一个 frame，转换为音频设备支持的格式，返回值是重采样音频帧的大小
-			audioSize = AudioResample(audioCallbackTime);
+			INT32 audioSize = AudioResample(audioCallbackTime);
 			if (audioSize < 0)
 			{
 				m_pAudioFrame = NULL;
@@ -142,20 +139,18 @@ void Audio::OnSDLAudioCallback(Uint8* stream, INT32 len)
 		}
 		// 引入 is->audioCopyIndex 的作用：防止一帧音频数据大小超过 SDL 音频缓冲区大小，这样一帧数据需要经过多次拷贝
 		// 用 is->audioCopyIndex 标识重采样帧中已拷入 SDL 音频缓冲区的数据位置索引， len1 标识本次拷贝的数据量
-		len1 = m_audioFrameSize - m_audioCopyIndex;
-		if (len1 > len)
-			len1 = len;
+		INT32 copySize = m_audioFrameSize - m_audioCopyIndex;
+		if (copySize > needSize)
+			copySize = needSize;
 		// 2.将转换后的音频数据拷贝到音频缓冲区 stream 中，之后的播放就是音频设备驱动程序工作
 		if (m_pAudioFrame != NULL)
-			memcpy(stream, static_cast<UINT8*>(m_pAudioFrame) + m_audioCopyIndex, len1);
+			memcpy(stream, static_cast<UINT8*>(m_pAudioFrame) + m_audioCopyIndex, copySize);
 		else
-			memset(stream, 0, len1);
-		len -= len1;
-		stream += len1;
-		m_audioCopyIndex += len1;
+			memset(stream, 0, copySize);
+		needSize -= copySize;
+		stream += copySize;
+		m_audioCopyIndex += copySize;
 	}
-
-	m_audioWriteBufferSize = m_audioFrameSize - m_audioCopyIndex;
 
 	// 3.更新时钟
 	if (!isnan(m_audioClock))
@@ -163,7 +158,10 @@ void Audio::OnSDLAudioCallback(Uint8* stream, INT32 len)
 		// -DSS TODO 这个 clock 是不是要加锁
 		// 更新音频时钟，更新时刻：每次往声卡缓冲区拷入数据后
 		// 前面 audioDecodeFrame 中更新的 is->audioClock 是以音频帧为单位，所以此处第二个参数要减去未拷贝数据量占用的时间
-		SetClockAt(&m_audioPlayClock, m_audioClock - static_cast<DOUBLE>(2 * m_audioHardwareBufferSize + m_audioWriteBufferSize) /
+		// 2 * m_audioHardwareBufferSize ；减去一个表示这个回调帧的渲染时间，在减去一个表示当前真正播放帧的渲染时间
+
+		INT32 remainSize = m_audioFrameSize - m_audioCopyIndex;
+		SetClockAt(&m_audioPlayClock, m_audioClock - static_cast<DOUBLE>(2 * m_audioHardwareBufferSize + remainSize) /
 			m_audioParamTarget.bytesPerSec, audioCallbackTime / 1000000.0);
 	}
 }
@@ -177,7 +175,7 @@ BOOL Audio::AudioDecodeFrame(AVCodecContext* pCodecContext, PacketQueue* pPacket
 		while (1)
 		{
 			if (m_player->IsStop())
-				return 1;
+				return TRUE;
 			// 3.2 一个音频 packet 含一至多个 frame，每次 avcodec_receive_frame() 返回一个 frame
 			ret = avcodec_receive_frame(pCodecContext, frame);
 			// -DSS TODO 能获取数据，是不是也要把数据放到解码队列里面，感觉这样快一点
@@ -280,10 +278,10 @@ BOOL Audio::OpenAudioStream()
 	return 0;
 }
 
-BOOL Audio::AudioResample(INT64 callbackTime)
+INT32 Audio::AudioResample(INT64 callbackTime)
 {
-	INT32 dataSize, resampledDataSize;
-	int64_t decodeChannelLayout;
+	INT32 resampledDataSize;
+	INT64 decodeChannelLayout;
 	INT32 wantedNumberSamples;
 	Frame* audioFrame;
 
@@ -301,10 +299,6 @@ BOOL Audio::AudioResample(INT64 callbackTime)
 		return -1;
 	// 删除上一帧
 	FrameQueueNext(&m_frameQueue);
-
-	// 根据 frame 中指向的音频参数获取缓冲区大小
-	dataSize = av_samples_get_buffer_size(NULL, audioFrame->frame->channels, audioFrame->frame->nb_samples,
-		static_cast<AVSampleFormat>(audioFrame->frame->format), 1);
 
 	// 获取声道布局
 	// 判断 frame 保存的 channel_layout 和 channels 是否对应
@@ -344,7 +338,7 @@ BOOL Audio::AudioResample(INT64 callbackTime)
 	if (m_swrContext)
 	{
 		const UINT8** in = const_cast<const UINT8**>(audioFrame->frame->extended_data);
-		UINT8** out = &m_pAudioFrameRwr;
+		UINT8** out = &m_pAudioFrameRwrBuffer;
 		INT32 outCount = static_cast<int64_t>(wantedNumberSamples * m_audioParamTarget.freq / audioFrame->frame->sample_rate + 256);
 		INT32 outSize = av_samples_get_buffer_size(NULL, m_audioParamTarget.channels, outCount, m_audioParamTarget.fmt, 0);
 		INT32 len2;
@@ -353,8 +347,8 @@ BOOL Audio::AudioResample(INT64 callbackTime)
 			av_log(NULL, AV_LOG_ERROR, "av_samples_get_buffer_size() failed\n");
 			return -1;
 		}
-		av_fast_malloc(&m_pAudioFrameRwr, &m_audioFrameRwrSize, outSize);
-		if (!m_pAudioFrameRwr)
+		av_fast_malloc(&m_pAudioFrameRwrBuffer, &m_audioFrameRwrSize, outSize);
+		if (!m_pAudioFrameRwrBuffer)
 			return AVERROR(ENOMEM);
 		// 音频重采样：返回值是重采样后得到的音频数据中单个声道的样本数
 		len2 = swr_convert(m_swrContext, out, outCount, in, audioFrame->frame->nb_samples);
@@ -364,7 +358,7 @@ BOOL Audio::AudioResample(INT64 callbackTime)
 			if (swr_init(m_swrContext) < 0)
 				swr_free(&m_swrContext);
 		}
-		m_pAudioFrame = m_pAudioFrameRwr;
+		m_pAudioFrame = m_pAudioFrameRwrBuffer;
 		// 重采样返回的一帧音频数据大小
 		resampledDataSize = len2 * m_audioParamTarget.channels * av_get_bytes_per_sample(m_audioParamTarget.fmt);
 	}
@@ -372,7 +366,9 @@ BOOL Audio::AudioResample(INT64 callbackTime)
 	{
 		// 未经重采样，则将指针指向frame 中的音频数据
 		m_pAudioFrame = audioFrame->frame->data[0];
-		resampledDataSize = dataSize;
+		// 根据 frame 中指向的音频参数获取缓冲区大小
+		resampledDataSize = av_samples_get_buffer_size(NULL, audioFrame->frame->channels, audioFrame->frame->nb_samples,
+			static_cast<AVSampleFormat>(audioFrame->frame->format), 1);;
 	}
 
 	if (!isnan(audioFrame->pts))

@@ -143,14 +143,6 @@ int FrameQueueNumberRemaining(FrameQueue* frameQueue)
 	return frameQueue->size - frameQueue->bShown;
 }
 
-int64_t FrameQueueLastPosition(FrameQueue* frameQueue)
-{
-	Frame* frame = &frameQueue->queue[frameQueue->rindex];
-	if (frameQueue->bShown)
-		return frame->pos;
-	else
-		return -1;
-}
 
 
 

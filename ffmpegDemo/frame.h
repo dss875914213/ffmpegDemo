@@ -13,6 +13,5 @@ Frame* FrameQueuePeekReadable(FrameQueue* frame);
 void FrameQueuePush(FrameQueue* frame);
 void FrameQueueNext(FrameQueue* frame);
 int FrameQueueNumberRemaining(FrameQueue* frame);
-int64_t FrameQueueLastPosition(FrameQueue* frame);
 
 
