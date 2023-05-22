@@ -1,28 +1,20 @@
 #include "player.h"
 
-Player::Player():
-	m_stop(FALSE),
-	m_pause(FALSE),
-	m_demux(NULL),
-	m_video(NULL),
-	m_audio(NULL)
+Player::Player() :
+	m_state(STOP)
 {
 }
 
 Player::~Player()
 {
-	
+
 }
 
 int Player::Play(const char* pInputFile)
 {
-	SAFE_DELETE(m_demux);
-	SAFE_DELETE(m_video);
-	SAFE_DELETE(m_audio);
-
-	m_demux = new FFDemux();
-	m_video = new Video();
-	m_audio = new Audio();
+	m_demux = make_unique<FFDemux>(*this);
+	m_video = make_unique<Video>();
+	m_audio = make_unique<Audio>(*this);
 	BOOL bRes = FALSE;
 	// 播放器初始化
 	bRes = PlayerInit(pInputFile);
@@ -31,7 +23,7 @@ int Player::Play(const char* pInputFile)
 		cout << "player init failed" << endl;
 		Stop();  // 开始退出
 	}
-	
+
 	m_demux->Open();		// 打开多路复用器，并创建线程用于解封装
 	m_video->Open();		// 打开图像渲染
 	m_audio->Open();		// 打开音频渲染
@@ -84,33 +76,34 @@ int Player::Play(const char* pInputFile)
 
 BOOL Player::IsStop()
 {
-	return m_stop;
+	return m_state == STOP;
 }
 
 BOOL Player::IsPause()
 {
-	return m_pause;
+	return m_state == PAUSE;
 }
 
-FFDemux* Player::GetDemux()
+shared_ptr <FFDemux> Player::GetDemux()
 {
 	return m_demux;
 }
 
-Audio* Player::GetAudio()
+shared_ptr <Audio> Player::GetAudio()
 {
 	return m_audio;
 }
 
 BOOL Player::PlayerInit(string pInputFile)
 {
-	// demux 初始化  video 初始化 audio 初始化
-	m_demux->Init(pInputFile, this);
-	m_video->Init(m_demux->GetPacketQueue(true), this);
-	m_audio->Init(m_demux->GetPacketQueue(false), this);
-
 	// 失能停止请求
-	m_stop = FALSE;
+	m_state = RUN;
+
+	// demux 初始化  video 初始化 audio 初始化
+	m_demux->Init(pInputFile);
+	m_video->Init(m_demux->GetPacketQueue(true), this);
+	m_audio->Init(m_demux->GetPacketQueue(false));
+	
 	// 初始化 SDL, 开启音视频和定时器能力
 	if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_TIMER))
 	{
@@ -124,25 +117,22 @@ BOOL Player::PlayerInit(string pInputFile)
 
 int Player::PlayerDeinit()
 {
-	m_stop = TRUE;
+	m_state = STOP;
 	if (m_video)
 	{
 		m_video->Close();
-		delete m_video;
 		m_video = NULL;
 	}
 
 	if (m_audio)
 	{
 		m_audio->Close();
-		delete m_audio;
 		m_audio = NULL;
 	}
 
 	if (m_demux)
 	{
 		m_demux->Close();
-		delete m_demux;
 		m_demux = NULL;
 	}
 	return 0;
@@ -157,7 +147,13 @@ void Player::Stop()
 }
 void Player::Pause()
 {
-	if (m_pause)
+	if (m_state == RUN)
+	{
+		m_state = PAUSE;
+	}
+	else if(m_state == PAUSE)
+	{
 		m_video->Pause();
-	m_pause = !m_pause;
+		m_state = RUN;
+	}
 }

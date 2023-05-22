@@ -2,12 +2,11 @@
 #include "packet.h"
 #include "frame.h"
 
-Audio::Audio()
+Audio::Audio(Player& player)
 	:m_swrContext(NULL),
 	m_pAudioFrame(NULL),
 	m_pAudioFrameRwrBuffer(NULL),
 	m_pAudioCodecContext(NULL),
-	m_player(NULL),
 	m_packetQueue(NULL),
 	m_pStream(NULL),
 	m_decodeThread(NULL),
@@ -15,21 +14,21 @@ Audio::Audio()
 	m_audioHardwareBufferSize(0),
 	m_audioFrameSize(0),
 	m_audioCopyIndex(0),
-	m_audioClock(0)
+	m_audioClock(0),
+	m_player(player)
 {
 	ZeroMemory(&m_frameQueue, sizeof(m_frameQueue));
 	ZeroMemory(&m_audioParamSource, sizeof(m_audioParamSource));
 	ZeroMemory(&m_audioPlayClock, sizeof(m_audioPlayClock));
 }
 
-BOOL Audio::Init(PacketQueue* pPacketQueue, Player* player)
+BOOL Audio::Init(PacketQueue* pPacketQueue)
 {
 	m_packetQueue = pPacketQueue;
 	if (FrameQueueInit(&m_frameQueue, pPacketQueue, SAMPLE_QUEUE_SIZE, 1) < 0)
 		return FALSE;
-	m_player = player;
 	InitClock(&m_audioPlayClock);
-	m_pStream = player->GetDemux()->GetStream(FALSE);
+	m_pStream = m_player.GetDemux()->GetStream(FALSE);
 	return TRUE;
 }
 
@@ -68,7 +67,7 @@ BOOL Audio::OnDecodeThread()
 
 	while (1)
 	{
-		if (m_player->IsStop())
+		if (m_player.IsStop())
 			break;
 		// 解码
 		receive = AudioDecodeFrame(m_pAudioCodecContext, m_packetQueue, pFrame);
@@ -115,8 +114,7 @@ void Audio::OnSDLAudioCallback(UINT8* stream, INT32 needSize)
 {
 	// 回调开始的时间
 	INT64 audioCallbackTime = av_gettime_relative();
-
-	if (m_player->IsPause())
+	if (m_player.IsPause())
 	{
 		memset(stream, 0, needSize);
 		return;
@@ -174,7 +172,7 @@ BOOL Audio::AudioDecodeFrame(AVCodecContext* pCodecContext, PacketQueue* pPacket
 		AVPacket pkt;
 		while (1)
 		{
-			if (m_player->IsStop())
+			if (m_player.IsStop())
 				return TRUE;
 			// 3.2 一个音频 packet 含一至多个 frame，每次 avcodec_receive_frame() 返回一个 frame
 			ret = avcodec_receive_frame(pCodecContext, frame);

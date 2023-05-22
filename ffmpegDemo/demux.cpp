@@ -5,13 +5,11 @@
 #include "config.h"
 using namespace std;
 
-FFDemux::FFDemux()
-	:m_player(NULL),
+FFDemux::FFDemux(Player& player)
+	:m_player(player),
 	m_readThread(NULL),
 	m_audioIndex(-1),
-	m_videoIndex(-1),
-	m_pFormatContext(NULL),
-	m_continueReadThread(NULL)
+	m_videoIndex(-1)
 {
 	ZeroMemory(&m_audioPacketQueue, sizeof(m_audioPacketQueue));
 	ZeroMemory(&m_videoPacketQueue, sizeof(m_videoPacketQueue));
@@ -22,14 +20,16 @@ FFDemux::~FFDemux()
 
 }
 
-BOOL FFDemux::Init(const string& filename, Player* player)
+BOOL FFDemux::Init(const string& filename)
 {
-	m_player = player;
 	// 分配流媒体解析上下文
 	AVFormatContext* pFormatContext = avformat_alloc_context();
+	m_pFormatContext.reset(pFormatContext, [](AVFormatContext* context) {avformat_close_input(&context); });
+	pFormatContext = NULL;
 	INT32 error = 0;
 	INT32 ret = 0;
-	if (!pFormatContext)
+	AVFormatContext* context = NULL;
+	if (!m_pFormatContext)
 	{
 		cout << "Could not allocate context." << endl;
 		ret = AVERROR(ENOMEM);
@@ -37,23 +37,24 @@ BOOL FFDemux::Init(const string& filename, Player* player)
 	}
 
 	// 中断回调机制。为底层 I/O 层提供一个处理接口，比如中止 IO 操作
-	pFormatContext->interrupt_callback.callback = DecodeInterruptCallback;
-	pFormatContext->interrupt_callback.opaque = this;
+	m_pFormatContext->interrupt_callback.callback = DecodeInterruptCallback;
+	m_pFormatContext->interrupt_callback.opaque = this;
 
 	// 1.构建 AVFormatContext
 	// 1.1 打开视频文件：读取文件头，将文件格式信息存储在 frame context 中
-	error = avformat_open_input(&pFormatContext, filename.c_str(), NULL, NULL);
+	context = m_pFormatContext.get();
+	error = avformat_open_input(&(context), filename.c_str(), NULL, NULL);
 	if (error < 0)
 	{
 		cout << "avformat_open_input() failed " << error << endl;
 		ret = -1;
 		goto FAIL;
 	}
-	m_pFormatContext = pFormatContext;
+	context = NULL;
 
 	// 1.2 搜索流信息：读取一段视频文件数据，尝试解码，将取到的流信息填入 pFormatContext->streams
 	// pFormatContext->streams 是一个指针数组，数组大小是 pFormatContext->nb_streams
-	error = avformat_find_stream_info(pFormatContext, NULL);
+	error = avformat_find_stream_info(m_pFormatContext.get(), NULL);
 	if (error < 0)
 	{
 		cout << "avformat_find_stream_info() failed " << error << endl;
@@ -62,14 +63,14 @@ BOOL FFDemux::Init(const string& filename, Player* player)
 	}
 	// 2. 查找第一个音频流/ 视频流
 	// nb_streams 文件中流媒体个数
-	for (INT32 i = 0; i < pFormatContext->nb_streams; i++)
+	for (INT32 i = 0; i < m_pFormatContext->nb_streams; i++)
 	{
-		if ((pFormatContext->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_AUDIO) && (m_audioIndex == -1))
+		if ((m_pFormatContext->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_AUDIO) && (m_audioIndex == -1))
 		{
 			m_audioIndex = i;
 			cout << "Find a audio stream, index " << m_audioIndex << endl;
 		}
-		if ((pFormatContext->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_VIDEO) && (m_videoIndex == -1))
+		if ((m_pFormatContext->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_VIDEO) && (m_videoIndex == -1))
 		{
 			m_videoIndex = i;
 			cout << "Find a video stream, index " << m_videoIndex << endl;
@@ -81,10 +82,7 @@ BOOL FFDemux::Init(const string& filename, Player* player)
 	{
 		cout << "Can't find any audio/video stream" << endl;
 		ret = -1;
-	FAIL:
-		if (pFormatContext != NULL)
-			avformat_close_input(&pFormatContext); // 关闭流媒体上下文
-		return ret;
+		goto FAIL;
 	}
 
 	// 未解压缩数据队列初始化
@@ -97,38 +95,43 @@ BOOL FFDemux::Init(const string& filename, Player* player)
 	PacketQueuePut(&m_videoPacketQueue, &flushPacket);
 	PacketQueuePut(&m_audioPacketQueue, &flushPacket);
 
-	if (!(m_continueReadThread = SDL_CreateCond()))
+	m_continueReadThread.reset(SDL_CreateCond(), [](SDL_cond* cond) {SDL_DestroyCond(cond); });
+
+	if (!m_continueReadThread)
 		return FALSE;
-	return 0;
+	return TRUE;
+FAIL:
+	m_pFormatContext.reset();// 关闭流媒体上下文
+	return ret;
 }
 
 
 BOOL FFDemux::Open()
 {
 	// 创建读文件线程 (线程函数, 线程名字, 传给线程的参数)
-	m_readThread = SDL_CreateThread(FFDemux::DemuxThread, "demuxThread", this);
-	if (m_readThread == NULL)
+	m_readThread.reset(SDL_CreateThread(FFDemux::DemuxThread, "demuxThread", this), [](SDL_Thread* thread) {SDL_WaitThread(thread, NULL); });
+	if (!m_readThread)
 	{
 		cout << "SDL_CreateThread() failed: " << SDL_GetError() << endl;
-		return -1;
+		return FALSE;
 	}
-	return 0;
+	return TRUE;
 }
 
 BOOL FFDemux::IsStop()
 {
-	return m_player->IsStop();
+	return m_player.IsStop();
 }
 
 BOOL FFDemux::Close()
 {
 	PacketQueueAbort(&m_videoPacketQueue);
 	PacketQueueAbort(&m_audioPacketQueue);
-	SDL_WaitThread(m_readThread, NULL);
-	avformat_close_input(&m_pFormatContext);
+	m_readThread.reset();
+	m_pFormatContext.reset();
 	PacketQueueDestroy(&m_videoPacketQueue);
 	PacketQueueDestroy(&m_audioPacketQueue);
-	SDL_DestroyCond(m_continueReadThread);
+	m_continueReadThread.reset();
 	return TRUE;
 }
 
@@ -182,13 +185,13 @@ BOOL FFDemux::DemuxThread(void* is)
 		{
 			SDL_LockMutex(waitMutex);
 			// -DSS TODO 读线程时，应该释放该变量；退出时也应该触发这个函数
-			SDL_CondWaitTimeout(demux->m_continueReadThread, waitMutex, 10);
+			SDL_CondWaitTimeout(demux->m_continueReadThread.get(), waitMutex, 10);
 			SDL_UnlockMutex(waitMutex);
 			continue;
 		}
 
 		// 4.1 从输入文件中读取一个 packet
-		ret = av_read_frame(demux->m_pFormatContext, pkt);
+		ret = av_read_frame(demux->m_pFormatContext.get(), pkt);
 		if (ret < 0)
 		{
 			if (ret == AVERROR_EOF)
@@ -200,7 +203,7 @@ BOOL FFDemux::DemuxThread(void* is)
 					PacketQueuePutNullPacket(&demux->m_audioPacketQueue, demux->m_audioIndex);
 			}
 			SDL_LockMutex(waitMutex);
-			SDL_CondWaitTimeout(demux->m_continueReadThread, waitMutex, 10);
+			SDL_CondWaitTimeout(demux->m_continueReadThread.get(), waitMutex, 10);
 			SDL_UnlockMutex(waitMutex);
 			continue;
 		}

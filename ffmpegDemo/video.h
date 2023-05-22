@@ -52,7 +52,6 @@ private:
 	SDLVideo			m_sdlVideo;
 	AVFormatContext*	m_pFormatContext;		// 流媒体解析上下文
 	PlayClock*			m_audioPlayClock;		// 音频播放时钟 
-
 };
 
 

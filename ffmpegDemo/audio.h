@@ -1,13 +1,15 @@
 #pragma once
 #include <windows.h>
+#include <memory>
 #include "player.h"
+using namespace std;
 
 class Player;
 class Audio
 {
 public:
-	Audio();
-	BOOL			Init(PacketQueue* pPacketQueue, Player* player);	// 初始化
+	Audio(Player& player);
+	BOOL			Init(PacketQueue* pPacketQueue);	// 初始化
 	BOOL			Open();	// 创建线程
 	void			Close();	// 关闭
 	PlayClock*		GetClock();	// 获得时间，用于同步
@@ -29,7 +31,7 @@ private:
 
 
 private:
-	Player*				m_player;
+	Player&				m_player;
 	PacketQueue*		m_packetQueue;					// 音频解码前帧队列
 	FrameQueue			m_frameQueue;					// 音频解码后帧队列
 	AVStream*			m_pStream;						// 音频流

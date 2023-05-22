@@ -36,7 +36,8 @@ BOOL Video::Init(PacketQueue* videoPacketQueue, Player* player)
 	m_player = player;
 	InitClock(&m_videoPlayClock);
 	m_audioPlayClock = player->GetAudio()->GetClock();
-	m_pStream = player->GetDemux()->GetStream(TRUE);
+	shared_ptr< FFDemux> ffdemuxer = player->GetDemux();
+	m_pStream = ffdemuxer->GetStream(TRUE);
 	return TRUE;
 }
 
